@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -30,7 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.carlmanning.sesdashboard.ui.theme.SESUnitDashboardTheme
 
-val lastExtractedData = mutableStateOf("Waiting for first API response...")
+val lastExtractedData = mutableStateOf("Tap Refresh after the page loads...")
+var globalWebView: WebView? = null
 
 class ScrapeBridge {
     @JavascriptInterface
@@ -54,6 +56,7 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
+                        RefreshButton()
                         ExtractionStatusBar()
                         SourceWebView(
                             url = "https://myavailability.ses.nsw.gov.au",
@@ -66,10 +69,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/**
- * Status bar showing the most recent JSON payload posted by the extractor.
- * Wrapped in SelectionContainer so you can long-press to select + copy.
- */
+@Composable
+fun RefreshButton() {
+    Button(
+        onClick = {
+            globalWebView?.evaluateJavascript(
+                "if (window.refreshSesData) window.refreshSesData(); else 'not ready';",
+                null
+            )
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text("Refresh myAvailability data")
+    }
+}
+
 @Composable
 fun ExtractionStatusBar() {
     val data by lastExtractedData
@@ -78,7 +94,7 @@ fun ExtractionStatusBar() {
         color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 32.dp, max = 160.dp)
+            .heightIn(min = 32.dp, max = 260.dp)
     ) {
         SelectionContainer {
             Text(
@@ -98,6 +114,8 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
         modifier = modifier,
         factory = { context ->
             WebView(context).apply {
+                globalWebView = this
+
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.databaseEnabled = true
@@ -145,12 +163,11 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                         """.trimIndent()
                         view?.evaluateJavascript(heightFixJs, null)
 
-                        // API interceptor.
                         val interceptorJs = """
                             (function() {
                                 if (window.__sesInterceptorInstalled) return;
                                 window.__sesInterceptorInstalled = true;
- 
+
                                 function postBridge(payload) {
                                     try {
                                         if (window.ScrapeBridge && window.ScrapeBridge.reportData) {
@@ -159,118 +176,142 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                                         console.log('[SES Interceptor]', payload);
                                     } catch (e) {}
                                 }
- 
-                                function classify(url) {
-                                    if (!url) return null;
-                                    if (url.indexOf('stream-io-api.com/channels') !== -1) return 'channels';
-                                    if (url.indexOf('stream-io-api.com/threads') !== -1) return 'threads';
-                                    if (url.indexOf('broadcast-messages/unacknowledged-count') !== -1) return 'broadcast-unread';
-                                    if (url.indexOf('api.ses-mams.net') !== -1) return 'sesmams';
-                                    return null;
-                                }
- 
+
                                 function captureUserId(url) {
                                     if (window.__sesUserId) return;
                                     var m = (url || '').match(/[?&]user_id=([^&]+)/);
                                     if (m) window.__sesUserId = m[1];
                                 }
- 
-                                function readEntryUserId(r) {
-                                    // Stream Chat nests the user under r.user.id, not r.user_id.
-                                    if (r.user && r.user.id) return r.user.id;
-                                    if (r.user_id) return r.user_id;
-                                    return null;
-                                }
- 
-                                function getUnreadForChannel(c) {
-                                    if (typeof c.unread_count === 'number') return c.unread_count;
-                                    if (typeof c.unread_messages === 'number') return c.unread_messages;
-                                    if (c.membership && typeof c.membership.unread_messages === 'number') return c.membership.unread_messages;
-                                    if (Array.isArray(c.read) && window.__sesUserId) {
-                                        for (var i = 0; i < c.read.length; i++) {
-                                            var r = c.read[i];
-                                            if (String(readEntryUserId(r)) === String(window.__sesUserId)) {
-                                                if (typeof r.unread_messages === 'number') return r.unread_messages;
-                                                if (typeof r.unread_count === 'number') return r.unread_count;
-                                            }
-                                        }
-                                    }
-                                    return 0;
-                                }
- 
-                                function summarize(type, url, data) {
-                                    var summary = {
-                                        type: type,
-                                        endpoint: url.split('?')[0].split('/').slice(-3).join('/'),
-                                        time: new Date().toISOString().slice(11, 19)
-                                    };
-                                    if (type === 'channels' && data && data.channels) {
-                                        window.__sesLastChannels = data;
-                                        summary.userId = window.__sesUserId || '(not captured)';
-                                        summary.totalChannels = data.channels.length;
-                                        var unreadList = [];
-                                        var totalUnread = 0;
-                                        for (var i = 0; i < data.channels.length; i++) {
-                                            var c = data.channels[i];
-                                            var u = getUnreadForChannel(c);
-                                            if (u > 0) {
-                                                var name = c.channel ? (c.channel.name || c.channel.id) : '?';
-                                                unreadList.push({ name: String(name).slice(0, 60), unread: u });
-                                                totalUnread += u;
-                                            }
-                                        }
-                                        summary.totalUnread = totalUnread;
-                                        summary.unreadChannels = unreadList.slice(0, 20);
-                                    } else if (type === 'broadcast-unread') {
-                                        summary.value = (data && data.count !== undefined) ? data.count : data;
-                                    } else {
-                                        summary.preview = JSON.stringify(data).slice(0, 400);
-                                    }
-                                    return summary;
-                                }
- 
+
+                                // Stream Chat fetch interceptor: captures /channels response
+                                // into window.__sesLastChannels and re-fires the refresh if
+                                // we've already done one (so the messages tile self-heals).
                                 var origFetch = window.fetch;
                                 window.fetch = function(input) {
                                     var url = typeof input === 'string' ? input : (input && input.url) || '';
-                                    var type = classify(url);
-                                    if (type) captureUserId(url);
                                     var promise = origFetch.apply(this, arguments);
-                                    if (type) {
+                                    if (url.indexOf('stream-io-api.com/channels') !== -1) {
+                                        captureUserId(url);
                                         promise.then(function(response) {
                                             response.clone().json().then(function(data) {
-                                                postBridge(summarize(type, url, data));
+                                                window.__sesLastChannels = data;
+                                                if (window.__sesHasRefreshed && window.refreshSesData) {
+                                                    window.refreshSesData();
+                                                }
                                             }).catch(function() {});
                                         }).catch(function() {});
                                     }
                                     return promise;
                                 };
- 
-                                var origOpen = XMLHttpRequest.prototype.open;
-                                var origSend = XMLHttpRequest.prototype.send;
-                                XMLHttpRequest.prototype.open = function(method, url) {
-                                    this._sesUrl = url;
-                                    return origOpen.apply(this, arguments);
-                                };
-                                XMLHttpRequest.prototype.send = function() {
-                                    var xhr = this;
-                                    var type = classify(xhr._sesUrl);
-                                    if (type) captureUserId(xhr._sesUrl);
-                                    if (type) {
-                                        xhr.addEventListener('load', function() {
-                                            try {
-                                                var data = JSON.parse(xhr.responseText);
-                                                postBridge(summarize(type, xhr._sesUrl, data));
-                                            } catch (e) {}
-                                        });
+
+                                function streamChannelUnread(c) {
+                                    if (!Array.isArray(c.read) || !window.__sesUserId) return 0;
+                                    for (var i = 0; i < c.read.length; i++) {
+                                        var r = c.read[i];
+                                        var uid = (r.user && r.user.id) || r.user_id;
+                                        if (String(uid) === String(window.__sesUserId)) {
+                                            return r.unread_messages || 0;
+                                        }
                                     }
-                                    return origSend.apply(this, arguments);
+                                    return 0;
+                                }
+
+                                // Build a readable label for one item: title plus start datetime if available.
+                                function itemSummary(it) {
+                                    var inner = it.activity || it.activation || {};
+                                    var title = it.title
+                                        || inner.title
+                                        || inner.name
+                                        || it.name
+                                        || it.id;
+                                    var start = inner.start;
+                                    if (start) {
+                                        return title + ' — ' + String(start).replace('T', ' ').slice(0, 16);
+                                    }
+                                    return title;
+                                }
+
+                                window.refreshSesData = function() {
+                                    window.__sesHasRefreshed = true;
+                                    var token = localStorage.getItem('accessToken');
+                                    if (!token) {
+                                        postBridge({ error: 'No access token in localStorage. Are you logged in?' });
+                                        return;
+                                    }
+
+                                    var headers = { 'Authorization': 'Bearer ' + token };
+                                    var endpoints = [
+                                        ['operational', 'https://api.ses-mams.net/activation-requests?skip=0&take=20&types%5B0%5D=Urgent&types%5B1%5D=NotUrgent&archived=false&query='],
+                                        ['activity', 'https://api.ses-mams.net/activity-requests'],
+                                        ['ooaa', 'https://api.ses-mams.net/out-of-area-activation-requests'],
+                                        ['ooaaApprovals', 'https://api.ses-mams.net/out-of-area-activation-approvals']
+                                    ];
+
+                                    Promise.all(endpoints.map(function(pair) {
+                                        return fetch(pair[1], { headers: headers })
+                                            .then(function(r) {
+                                                return r.json().then(function(d) {
+                                                    return [pair[0], { status: r.status, data: d }];
+                                                });
+                                            })
+                                            .catch(function(e) { return [pair[0], { error: e.message }]; });
+                                    })).then(function(results) {
+                                        var summary = {
+                                            type: 'myAvailability-summary',
+                                            time: new Date().toISOString().slice(11, 19)
+                                        };
+
+                                        results.forEach(function(pair) {
+                                            var key = pair[0];
+                                            var v = pair[1];
+                                            if (v.error) {
+                                                summary[key] = { error: v.error };
+                                                return;
+                                            }
+                                            var data = v.data || {};
+                                            var items = data.items || [];
+                                            summary[key] = {
+                                                count: items.length,
+                                                totalCount: data.totalCount,
+                                                items: items.slice(0, 8).map(itemSummary)
+                                            };
+                                        });
+
+                                        if (window.__sesLastChannels && window.__sesUserId) {
+                                            var d = window.__sesLastChannels;
+                                            var totalUnread = 0;
+                                            var unreadChannels = 0;
+                                            d.channels.forEach(function(c) {
+                                                var n = streamChannelUnread(c);
+                                                if (n > 0) {
+                                                    totalUnread += n;
+                                                    unreadChannels++;
+                                                }
+                                            });
+                                            summary.messages = {
+                                                totalChannels: d.channels.length,
+                                                unreadChannels: unreadChannels,
+                                                totalUnread: totalUnread
+                                            };
+                                        } else {
+                                            summary.messages = { note: 'Stream Chat data not yet captured. Tap Messages once and the tile will self-heal.' };
+                                        }
+
+                                        postBridge(summary);
+                                    }).catch(function(e) {
+                                        postBridge({ error: 'refresh failed: ' + e.message });
+                                    });
                                 };
- 
+
                                 postBridge({
                                     type: 'interceptor-installed',
-                                    time: new Date().toISOString().slice(11, 19),
-                                    page: location.pathname
+                                    page: location.pathname,
+                                    note: 'Auto-refreshing in 5 s. Tap Messages to populate the chat tile.'
                                 });
+
+                                setTimeout(function() {
+                                    if (window.refreshSesData) window.refreshSesData();
+                                }, 5000);
                             })();
                         """.trimIndent()
                         view?.evaluateJavascript(interceptorJs, null)
