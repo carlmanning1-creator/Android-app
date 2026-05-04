@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -29,17 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.carlmanning.sesdashboard.ui.theme.SESUnitDashboardTheme
 
-/**
- * Top-level mutable state holding the most recent payload posted from
- * JavaScript via the bridge. Compose observes this and re-renders.
- */
 val lastExtractedData = mutableStateOf("Waiting for first API response...")
 
-/**
- * Bridge object exposed to JavaScript inside the WebView.
- * JS calls window.ScrapeBridge.reportData(jsonString); the string lands
- * here on a background thread, and we hop to the UI thread to update state.
- */
 class ScrapeBridge {
     @JavascriptInterface
     fun reportData(json: String) {
@@ -75,8 +67,8 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Status bar showing the most recent JSON payload posted by the JS extractor.
- * Scrollable up to ~140 dp so larger payloads remain readable.
+ * Status bar showing the most recent JSON payload posted by the extractor.
+ * Wrapped in SelectionContainer so you can long-press to select + copy.
  */
 @Composable
 fun ExtractionStatusBar() {
@@ -86,15 +78,17 @@ fun ExtractionStatusBar() {
         color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 32.dp, max = 140.dp)
+            .heightIn(min = 32.dp, max = 160.dp)
     ) {
-        Text(
-            text = data,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier
-                .padding(8.dp)
-                .verticalScroll(scroll)
-        )
+        SelectionContainer {
+            Text(
+                text = data,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(8.dp)
+                    .verticalScroll(scroll)
+            )
+        }
     }
 }
 
@@ -127,7 +121,7 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
 
-                        // 1) Best-effort layout fix (kept in case it ever takes).
+                        // Best-effort layout fix.
                         val heightFixJs = """
                             (function() {
                                 function applyFix() {
@@ -151,14 +145,12 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                         """.trimIndent()
                         view?.evaluateJavascript(heightFixJs, null)
 
-                        // 2) API interceptor — wraps fetch and XHR so we can
-                        //    grab JSON responses from interesting endpoints
-                        //    as soon as they hit the wire. Idempotent.
+                        // API interceptor.
                         val interceptorJs = """
                             (function() {
                                 if (window.__sesInterceptorInstalled) return;
                                 window.__sesInterceptorInstalled = true;
-
+ 
                                 function postBridge(payload) {
                                     try {
                                         if (window.ScrapeBridge && window.ScrapeBridge.reportData) {
@@ -167,7 +159,7 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                                         console.log('[SES Interceptor]', payload);
                                     } catch (e) {}
                                 }
-
+ 
                                 function classify(url) {
                                     if (!url) return null;
                                     if (url.indexOf('stream-io-api.com/channels') !== -1) return 'channels';
@@ -176,7 +168,36 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                                     if (url.indexOf('api.ses-mams.net') !== -1) return 'sesmams';
                                     return null;
                                 }
-
+ 
+                                function captureUserId(url) {
+                                    if (window.__sesUserId) return;
+                                    var m = (url || '').match(/[?&]user_id=([^&]+)/);
+                                    if (m) window.__sesUserId = m[1];
+                                }
+ 
+                                function readEntryUserId(r) {
+                                    // Stream Chat nests the user under r.user.id, not r.user_id.
+                                    if (r.user && r.user.id) return r.user.id;
+                                    if (r.user_id) return r.user_id;
+                                    return null;
+                                }
+ 
+                                function getUnreadForChannel(c) {
+                                    if (typeof c.unread_count === 'number') return c.unread_count;
+                                    if (typeof c.unread_messages === 'number') return c.unread_messages;
+                                    if (c.membership && typeof c.membership.unread_messages === 'number') return c.membership.unread_messages;
+                                    if (Array.isArray(c.read) && window.__sesUserId) {
+                                        for (var i = 0; i < c.read.length; i++) {
+                                            var r = c.read[i];
+                                            if (String(readEntryUserId(r)) === String(window.__sesUserId)) {
+                                                if (typeof r.unread_messages === 'number') return r.unread_messages;
+                                                if (typeof r.unread_count === 'number') return r.unread_count;
+                                            }
+                                        }
+                                    }
+                                    return 0;
+                                }
+ 
                                 function summarize(type, url, data) {
                                     var summary = {
                                         type: type,
@@ -184,29 +205,35 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                                         time: new Date().toISOString().slice(11, 19)
                                     };
                                     if (type === 'channels' && data && data.channels) {
+                                        window.__sesLastChannels = data;
+                                        summary.userId = window.__sesUserId || '(not captured)';
                                         summary.totalChannels = data.channels.length;
-                                        summary.unreadChannels = data.channels.filter(function(c) {
-                                            return (c.unread_count || 0) > 0;
-                                        }).map(function(c) {
-                                            return {
-                                                name: c.channel ? (c.channel.name || c.channel.id) : '?',
-                                                unread: c.unread_count || 0
-                                            };
-                                        });
-                                        summary.totalUnread = summary.unreadChannels.reduce(function(s, c) { return s + c.unread; }, 0);
+                                        var unreadList = [];
+                                        var totalUnread = 0;
+                                        for (var i = 0; i < data.channels.length; i++) {
+                                            var c = data.channels[i];
+                                            var u = getUnreadForChannel(c);
+                                            if (u > 0) {
+                                                var name = c.channel ? (c.channel.name || c.channel.id) : '?';
+                                                unreadList.push({ name: String(name).slice(0, 60), unread: u });
+                                                totalUnread += u;
+                                            }
+                                        }
+                                        summary.totalUnread = totalUnread;
+                                        summary.unreadChannels = unreadList.slice(0, 20);
                                     } else if (type === 'broadcast-unread') {
-                                        summary.value = data && data.count !== undefined ? data.count : data;
+                                        summary.value = (data && data.count !== undefined) ? data.count : data;
                                     } else {
                                         summary.preview = JSON.stringify(data).slice(0, 400);
                                     }
                                     return summary;
                                 }
-
-                                // Wrap fetch
+ 
                                 var origFetch = window.fetch;
                                 window.fetch = function(input) {
                                     var url = typeof input === 'string' ? input : (input && input.url) || '';
                                     var type = classify(url);
+                                    if (type) captureUserId(url);
                                     var promise = origFetch.apply(this, arguments);
                                     if (type) {
                                         promise.then(function(response) {
@@ -217,8 +244,7 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                                     }
                                     return promise;
                                 };
-
-                                // Wrap XHR
+ 
                                 var origOpen = XMLHttpRequest.prototype.open;
                                 var origSend = XMLHttpRequest.prototype.send;
                                 XMLHttpRequest.prototype.open = function(method, url) {
@@ -228,6 +254,7 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                                 XMLHttpRequest.prototype.send = function() {
                                     var xhr = this;
                                     var type = classify(xhr._sesUrl);
+                                    if (type) captureUserId(xhr._sesUrl);
                                     if (type) {
                                         xhr.addEventListener('load', function() {
                                             try {
@@ -238,7 +265,7 @@ fun SourceWebView(url: String, modifier: Modifier = Modifier) {
                                     }
                                     return origSend.apply(this, arguments);
                                 };
-
+ 
                                 postBridge({
                                     type: 'interceptor-installed',
                                     time: new Date().toISOString().slice(11, 19),
