@@ -28,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
@@ -44,20 +45,17 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.carlmanning.sesdashboard.ui.theme.SESUnitDashboardTheme
 
-/**
- * One of the WebView sources. The optional [profile] name selects an isolated
- * cookie jar via androidx.webkit's Profile API. Empty string = default profile
- * (shared with anything else that doesn't specify one).
- */
 data class Source(val name: String, val url: String, val profile: String = "")
 
 val SOURCES = listOf(
     Source("myAvail", "https://myavailability.ses.nsw.gov.au"),
     Source("Outlook", "https://outlook.office.com"),
-    Source("DBO Ops", "https://outlook.cloud.microsoft/mail/dbo.ops@ses.nsw.gov.au/", profile = "dbo_ops")
+    Source("DBO Ops", "https://outlook.cloud.microsoft/mail/dbo.ops@ses.nsw.gov.au/", profile = "dbo_ops"),
+    Source("Planner", "https://planner.cloud.microsoft")
 )
 
 val lastExtractedData = mutableStateOf("Tap Refresh after the page loads...")
+var globalWebView: WebView? = null
 
 class ScrapeBridge {
     @JavascriptInterface
@@ -79,7 +77,9 @@ class MainActivity : ComponentActivity() {
                     var currentSourceName by remember { mutableStateOf(SOURCES.first().name) }
                     val webViewMap = remember { mutableStateMapOf<String, WebView>() }
 
-                    val activeWebView = webViewMap[currentSourceName]
+                    LaunchedEffect(currentSourceName, webViewMap[currentSourceName]) {
+                        globalWebView = webViewMap[currentSourceName]
+                    }
 
                     Column(
                         modifier = Modifier
@@ -87,10 +87,8 @@ class MainActivity : ComponentActivity() {
                             .padding(innerPadding)
                     ) {
                         SourceTabs(currentSourceName) { currentSourceName = it }
-                        ActionButtons(activeWebView)
+                        ActionButtons()
                         ExtractionStatusBar()
-                        // All WebViews stack inside this Box. The active one is on top
-                        // (zIndex 1, alpha 1); the rest are behind it (zIndex 0, alpha 0).
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -136,7 +134,7 @@ fun SourceTabs(current: String, onSelect: (String) -> Unit) {
 }
 
 @Composable
-fun ActionButtons(activeWebView: WebView?) {
+fun ActionButtons() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -145,7 +143,7 @@ fun ActionButtons(activeWebView: WebView?) {
     ) {
         Button(
             onClick = {
-                activeWebView?.evaluateJavascript(
+                globalWebView?.evaluateJavascript(
                     "if (window.refresh) window.refresh();",
                     null
                 )
@@ -156,7 +154,7 @@ fun ActionButtons(activeWebView: WebView?) {
         }
         Button(
             onClick = {
-                activeWebView?.evaluateJavascript(
+                globalWebView?.evaluateJavascript(
                     "if (window.dumpFetchLog) window.dumpFetchLog();",
                     null
                 )
@@ -167,14 +165,14 @@ fun ActionButtons(activeWebView: WebView?) {
         }
         Button(
             onClick = {
-                activeWebView?.evaluateJavascript(
-                    "if (window.dumpOwaData) window.dumpOwaData();",
+                globalWebView?.evaluateJavascript(
+                    "if (window.dumpSource) window.dumpSource();",
                     null
                 )
             },
             modifier = Modifier.weight(1f)
         ) {
-            Text("OWA dump")
+            Text("Dump")
         }
     }
 }
@@ -201,11 +199,6 @@ fun ExtractionStatusBar() {
     }
 }
 
-/**
- * Try to assign a non-default cookie jar to this WebView via the Profile API.
- * Falls back silently to the default profile if the device's WebView doesn't
- * support multi-profile.
- */
 private fun assignProfileSafely(webView: WebView, profileName: String) {
     if (profileName.isEmpty()) return
     try {
@@ -228,7 +221,6 @@ fun SourceWebView(
         modifier = modifier,
         factory = { context ->
             WebView(context).apply {
-                // Profile must be assigned BEFORE any other WebView usage.
                 assignProfileSafely(this, source.profile)
 
                 settings.javaScriptEnabled = true
@@ -309,6 +301,21 @@ private fun buildInterceptorJs(): String = """
             if (m) window.__sesUserId = m[1];
         }
 
+        function readAuthHeader(input, init) {
+            try {
+                var h = (init && init.headers) || (input && input.headers);
+                if (!h) return '';
+                if (h instanceof Headers) return h.get('Authorization') || '';
+                if (typeof h === 'object') return h['Authorization'] || h['authorization'] || '';
+                if (Array.isArray(h)) {
+                    for (var i = 0; i < h.length; i++) {
+                        if (h[i][0] && h[i][0].toLowerCase() === 'authorization') return h[i][1];
+                    }
+                }
+            } catch (e) {}
+            return '';
+        }
+
         window.__sesFetchLog = window.__sesFetchLog || [];
         window.__sesOwaRequests = window.__sesOwaRequests || {};
         window.__sesOwaResponses = window.__sesOwaResponses || {};
@@ -322,6 +329,7 @@ private fun buildInterceptorJs(): String = """
                 if (window.__sesFetchLog.length > 50) window.__sesFetchLog.shift();
             }
 
+            // OWA service.svc capture (Outlook).
             if (url.indexOf('owa/service.svc') !== -1 && init && init.body) {
                 var aMatch = url.match(/[?&]action=([^&]+)/);
                 var act = aMatch ? aMatch[1] : 'unknown';
@@ -348,6 +356,7 @@ private fun buildInterceptorJs(): String = """
                 }).catch(function() {});
             }
 
+            // Stream Chat capture.
             if (url.indexOf('stream-io-api.com/channels') !== -1) {
                 captureUserId(url);
                 promise.then(function(response) {
@@ -358,6 +367,25 @@ private fun buildInterceptorJs(): String = """
                         }
                     }).catch(function() {});
                 }).catch(function() {});
+            }
+
+            // Planner capture: token from headers, and tasks response body —
+            // but only cache responses that have actual data, so that empty
+            // delta-sync responses don't wipe a previously-good cache.
+            if (url.indexOf('api.planner.svc.cloud.microsoft') !== -1) {
+                var auth = readAuthHeader(input, init);
+                if (auth) window.__sesPlannerAuth = auth;
+                if (url.indexOf('/tasks') !== -1) {
+                    promise.then(function(response) {
+                        response.clone().json().then(function(data) {
+                            var v = (data && data.value) || data;
+                            var isEmpty = Array.isArray(v) && v.length === 0;
+                            if (!isEmpty || !window.__sesPlannerTasks) {
+                                window.__sesPlannerTasks = data;
+                            }
+                        }).catch(function() {});
+                    }).catch(function() {});
+                }
             }
 
             return promise;
@@ -391,6 +419,38 @@ private fun buildInterceptorJs(): String = """
                 };
             });
             postBridge(summary);
+        };
+
+        window.dumpPlannerData = function() {
+            var d = window.__sesPlannerTasks;
+            if (!d) {
+                postBridge({ type: 'planner-dump', note: 'No tasks data captured yet — wait for Planner to load.' });
+                return;
+            }
+            var tasks = Array.isArray(d) ? d : (d.value || d.tasks || []);
+            var summary = {
+                type: 'planner-dump',
+                host: location.hostname,
+                hasAuth: !!window.__sesPlannerAuth,
+                rawTopKeys: typeof d === 'object' ? Object.keys(d).slice(0, 20) : null,
+                tasksIsArray: Array.isArray(tasks),
+                tasksCount: Array.isArray(tasks) ? tasks.length : 'n/a'
+            };
+            if (Array.isArray(tasks) && tasks[0]) {
+                summary.firstTaskKeys = Object.keys(tasks[0]).slice(0, 30);
+                summary.firstTaskPreview = JSON.stringify(tasks[0]).slice(0, 800);
+            }
+            postBridge(summary);
+        };
+
+        window.dumpSource = function() {
+            var host = location.hostname;
+            if (host.indexOf('outlook') !== -1) return window.dumpOwaData && window.dumpOwaData();
+            if (host.indexOf('planner') !== -1) return window.dumpPlannerData && window.dumpPlannerData();
+            if (host.indexOf('myavailability') !== -1) {
+                return window.refreshSesData && window.refreshSesData();
+            }
+            postBridge({ error: 'No dump available for host: ' + host });
         };
 
         function streamChannelUnread(c) {
@@ -511,6 +571,71 @@ private fun buildInterceptorJs(): String = """
             postBridge(summary);
         };
 
+        function buildPlannerSummary(d) {
+            var summary = {
+                type: 'planner-summary',
+                host: location.hostname,
+                time: new Date().toISOString().slice(11, 19)
+            };
+            if (!d) { summary.note = 'No Planner tasks data.'; return summary; }
+            var tasks = Array.isArray(d) ? d : (d.value || d.tasks || []);
+            if (!Array.isArray(tasks)) {
+                summary.note = 'Unexpected Planner shape — tap Dump to inspect.';
+                summary.topKeys = typeof d === 'object' ? Object.keys(d).slice(0, 10) : null;
+                return summary;
+            }
+            summary.totalTasks = tasks.length;
+            var openTasks = tasks.filter(function(t) {
+                if (t.completedDateTime) return false;
+                if (typeof t.percentComplete === 'number' && t.percentComplete >= 100) return false;
+                return true;
+            });
+            summary.openTasks = openTasks.length;
+            summary.openTitles = openTasks.slice(0, 10).map(function(t) {
+                var title = t.displayName || t.title || t.name || t.id || '?';
+                var due = '';
+                if (t.dueDateTime) {
+                    if (typeof t.dueDateTime === 'object') {
+                        due = t.dueDateTime.date || t.dueDateTime.utcDate || '';
+                    } else {
+                        due = String(t.dueDateTime);
+                    }
+                }
+                var prefix = String(title).slice(0, 70);
+                if (due) return prefix + ' — due ' + String(due).slice(0, 10);
+                return prefix;
+            });
+            return summary;
+        }
+
+        window.refreshPlannerFromAPI = function() {
+            var token = window.__sesPlannerAuth;
+            if (!token) {
+                var fallback = buildPlannerSummary(window.__sesPlannerTasks);
+                fallback.note = 'No Planner Bearer token captured yet — interact with Planner first.';
+                postBridge(fallback);
+                return;
+            }
+            var url = "https://api.planner.svc.cloud.microsoft/taskapi/v4.0/users('me')/tasks?%24expand=checklist,links,userAssignments";
+            fetch(url, { headers: { 'Authorization': token } })
+                .then(function(r) { return r.json().then(function(d) { return { status: r.status, data: d }; }); })
+                .then(function(res) {
+                    if (res.status >= 400) {
+                        postBridge({ error: 'Planner API ' + res.status, body: JSON.stringify(res.data).slice(0, 300) });
+                        return;
+                    }
+                    window.__sesPlannerTasks = res.data;
+                    postBridge(buildPlannerSummary(res.data));
+                })
+                .catch(function(e) {
+                    postBridge({ error: 'Planner fetch failed: ' + e.message });
+                });
+        };
+
+        window.extractPlannerData = function() {
+            postBridge(buildPlannerSummary(window.__sesPlannerTasks));
+        };
+
         window.refresh = function() {
             var host = location.hostname;
             if (host.indexOf('myavailability') !== -1) {
@@ -519,6 +644,10 @@ private fun buildInterceptorJs(): String = """
             }
             if (host.indexOf('outlook') !== -1) {
                 if (window.extractOutlookData) window.extractOutlookData();
+                return;
+            }
+            if (host.indexOf('planner') !== -1) {
+                if (window.refreshPlannerFromAPI) window.refreshPlannerFromAPI();
                 return;
             }
             postBridge({ error: 'No extractor for host: ' + host });
