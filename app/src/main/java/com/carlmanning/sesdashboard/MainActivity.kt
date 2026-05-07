@@ -10,18 +10,23 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -37,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
@@ -44,6 +50,9 @@ import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.carlmanning.sesdashboard.ui.theme.SESUnitDashboardTheme
+import org.json.JSONObject
+
+// ---- Sources ---------------------------------------------------------------
 
 data class Source(val name: String, val url: String, val profile: String = "")
 
@@ -54,17 +63,117 @@ val SOURCES = listOf(
     Source("Planner", "https://planner.cloud.microsoft")
 )
 
-val lastExtractedData = mutableStateOf("Tap Refresh after the page loads...")
+const val DASHBOARD_TAB = "Dashboard"
+val ALL_TABS = listOf(DASHBOARD_TAB) + SOURCES.map { it.name }
+
+// ---- Per-source state holders ---------------------------------------------
+
+data class MyAvailData(
+    val operationalCount: Int = 0,
+    val activityCount: Int = 0,
+    val ooaaCount: Int = 0,
+    val ooaaApprovalsCount: Int = 0,
+    val unreadChannels: Int = 0,
+    val totalUnread: Int = 0,
+    val activityTitles: List<String> = emptyList(),
+    val ooaaTitles: List<String> = emptyList(),
+    val operationalTitles: List<String> = emptyList(),
+    val time: String = ""
+)
+
+data class OutlookData(
+    val unreadCount: Int = 0,
+    val recentSenders: List<String> = emptyList(),
+    val recentConversations: List<String> = emptyList(),
+    val time: String = ""
+)
+
+data class PlannerData(
+    val totalTasks: Int = 0,
+    val openTasks: Int = 0,
+    val openTitles: List<String> = emptyList(),
+    val time: String = ""
+)
+
+val lastExtractedData = mutableStateOf("Tap Refresh on the Dashboard to populate.")
+val myAvailState = mutableStateOf<MyAvailData?>(null)
+val outlookPersonalState = mutableStateOf<OutlookData?>(null)
+val outlookDboOpsState = mutableStateOf<OutlookData?>(null)
+val plannerState = mutableStateOf<PlannerData?>(null)
 var globalWebView: WebView? = null
+
+// ---- Bridge ---------------------------------------------------------------
 
 class ScrapeBridge {
     @JavascriptInterface
     fun reportData(json: String) {
         Handler(Looper.getMainLooper()).post {
             lastExtractedData.value = json
+            try {
+                val obj = JSONObject(json)
+                when (obj.optString("type")) {
+                    "myAvailability-summary" -> myAvailState.value = parseMyAvail(obj)
+                    "outlook-summary" -> {
+                        val host = obj.optString("host")
+                        val data = parseOutlook(obj)
+                        if (host.contains("cloud.microsoft")) {
+                            outlookDboOpsState.value = data
+                        } else {
+                            outlookPersonalState.value = data
+                        }
+                    }
+                    "planner-summary" -> plannerState.value = parsePlanner(obj)
+                }
+            } catch (e: Exception) {
+                // Leave lastExtractedData as the raw JSON for debugging.
+            }
         }
     }
 }
+
+private fun jsonStringList(arr: org.json.JSONArray?): List<String> {
+    if (arr == null) return emptyList()
+    return (0 until arr.length()).map { arr.optString(it) }
+}
+
+private fun parseMyAvail(obj: JSONObject): MyAvailData {
+    fun count(key: String) = obj.optJSONObject(key)?.optInt("count") ?: 0
+    fun titles(key: String) = jsonStringList(obj.optJSONObject(key)?.optJSONArray("items"))
+    val msgs = obj.optJSONObject("messages")
+    return MyAvailData(
+        operationalCount = count("operational"),
+        activityCount = count("activity"),
+        ooaaCount = count("ooaa"),
+        ooaaApprovalsCount = count("ooaaApprovals"),
+        unreadChannels = msgs?.optInt("unreadChannels") ?: 0,
+        totalUnread = msgs?.optInt("totalUnread") ?: 0,
+        activityTitles = titles("activity"),
+        ooaaTitles = titles("ooaa"),
+        operationalTitles = titles("operational"),
+        time = obj.optString("time")
+    )
+}
+
+private fun parseOutlook(obj: JSONObject): OutlookData {
+    val inbox = obj.optJSONObject("inbox")
+    return OutlookData(
+        unreadCount = inbox?.optInt("unreadCount") ?: 0,
+        recentSenders = jsonStringList(inbox?.optJSONArray("recentSenders")),
+        recentConversations = jsonStringList(obj.optJSONArray("recentConversations")),
+        time = obj.optString("time")
+    )
+}
+
+private fun parsePlanner(obj: JSONObject): PlannerData {
+    return PlannerData(
+        totalTasks = obj.optInt("totalTasks"),
+        openTasks = obj.optInt("openTasks"),
+        openTitles = jsonStringList(obj.optJSONArray("openTitles")),
+        time = obj.optString("time")
+    )
+}
+
+// ---- Activity / Compose root ---------------------------------------------
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,11 +183,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             SESUnitDashboardTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    var currentSourceName by remember { mutableStateOf(SOURCES.first().name) }
+                    var currentTab by remember { mutableStateOf(DASHBOARD_TAB) }
                     val webViewMap = remember { mutableStateMapOf<String, WebView>() }
 
-                    LaunchedEffect(currentSourceName, webViewMap[currentSourceName]) {
-                        globalWebView = webViewMap[currentSourceName]
+                    LaunchedEffect(currentTab, webViewMap[currentTab]) {
+                        globalWebView = webViewMap[currentTab]
                     }
 
                     Column(
@@ -86,17 +195,24 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
-                        SourceTabs(currentSourceName) { currentSourceName = it }
-                        ActionButtons()
+                        TabRow(currentTab) { currentTab = it }
+                        ActionButtons(currentTab, webViewMap)
                         ExtractionStatusBar()
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .fillMaxWidth()
                         ) {
+                            // Dashboard always rendered, alpha-toggled.
+                            DashboardScreen(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .alpha(if (currentTab == DASHBOARD_TAB) 1f else 0f)
+                                    .zIndex(if (currentTab == DASHBOARD_TAB) 1f else 0f)
+                            )
                             SOURCES.forEach { source ->
                                 key(source.name) {
-                                    val isActive = currentSourceName == source.name
+                                    val isActive = currentTab == source.name
                                     SourceWebView(
                                         source = source,
                                         onWebViewReady = { wv -> webViewMap[source.name] = wv },
@@ -116,25 +232,27 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun SourceTabs(current: String, onSelect: (String) -> Unit) {
+fun TabRow(current: String, onSelect: (String) -> Unit) {
+    val scroll = rememberScrollState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(scroll)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        SOURCES.forEach { source ->
+        ALL_TABS.forEach { name ->
             FilterChip(
-                selected = current == source.name,
-                onClick = { onSelect(source.name) },
-                label = { Text(source.name) }
+                selected = current == name,
+                onClick = { onSelect(name) },
+                label = { Text(name) }
             )
         }
     }
 }
 
 @Composable
-fun ActionButtons() {
+fun ActionButtons(currentTab: String, webViewMap: Map<String, WebView>) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -143,20 +261,26 @@ fun ActionButtons() {
     ) {
         Button(
             onClick = {
-                globalWebView?.evaluateJavascript(
-                    "if (window.refresh) window.refresh();",
-                    null
-                )
+                if (currentTab == DASHBOARD_TAB) {
+                    SOURCES.forEach { src ->
+                        webViewMap[src.name]?.evaluateJavascript(
+                            "if (window.refresh) window.refresh();", null
+                        )
+                    }
+                } else {
+                    globalWebView?.evaluateJavascript(
+                        "if (window.refresh) window.refresh();", null
+                    )
+                }
             },
             modifier = Modifier.weight(1f)
         ) {
-            Text("Refresh")
+            Text(if (currentTab == DASHBOARD_TAB) "Refresh All" else "Refresh")
         }
         Button(
             onClick = {
                 globalWebView?.evaluateJavascript(
-                    "if (window.dumpFetchLog) window.dumpFetchLog();",
-                    null
+                    "if (window.dumpFetchLog) window.dumpFetchLog();", null
                 )
             },
             modifier = Modifier.weight(1f)
@@ -166,8 +290,7 @@ fun ActionButtons() {
         Button(
             onClick = {
                 globalWebView?.evaluateJavascript(
-                    "if (window.dumpSource) window.dumpSource();",
-                    null
+                    "if (window.dumpSource) window.dumpSource();", null
                 )
             },
             modifier = Modifier.weight(1f)
@@ -185,7 +308,7 @@ fun ExtractionStatusBar() {
         color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 32.dp, max = 280.dp)
+            .heightIn(min = 24.dp, max = 100.dp)
     ) {
         SelectionContainer {
             Text(
@@ -198,6 +321,138 @@ fun ExtractionStatusBar() {
         }
     }
 }
+
+// ---- Dashboard ------------------------------------------------------------
+
+@Composable
+fun DashboardScreen(modifier: Modifier = Modifier) {
+    val myAvail by myAvailState
+    val outlookPersonal by outlookPersonalState
+    val outlookDboOps by outlookDboOpsState
+    val planner by plannerState
+    val scroll = rememberScrollState()
+
+    Column(
+        modifier = modifier
+            .verticalScroll(scroll)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        InboxTile(personal = outlookPersonal, dboOps = outlookDboOps)
+        ActivitiesTile(myAvail)
+        PlannerTile(planner)
+        MessagesTile(myAvail)
+    }
+}
+
+@Composable
+private fun TileCard(title: String, content: @Composable () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun NotLoaded(hint: String) {
+    Text(
+        text = hint,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+fun InboxTile(personal: OutlookData?, dboOps: OutlookData?) {
+    TileCard(title = "Inbox") {
+        if (personal != null) {
+            Text("Personal SES: ${personal.unreadCount} unread")
+        } else {
+            NotLoaded("Personal SES — open Outlook tab once to populate.")
+        }
+        if (dboOps != null) {
+            Text("DBO Ops: ${dboOps.unreadCount} unread")
+        } else {
+            NotLoaded("DBO Ops — open DBO Ops tab once to populate.")
+        }
+        if (personal != null && personal.recentConversations.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Recent (Personal):", style = MaterialTheme.typography.labelMedium)
+            personal.recentConversations.take(4).forEach {
+                Text("• $it", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+fun ActivitiesTile(data: MyAvailData?) {
+    TileCard(title = "myAvailability — Activities") {
+        if (data == null) {
+            NotLoaded("Open myAvail tab once to populate.")
+            return@TileCard
+        }
+        Text("Operational: ${data.operationalCount}")
+        Text("Activity: ${data.activityCount}")
+        Text("OOAA: ${data.ooaaCount}")
+        Text("OOAA approvals pending: ${data.ooaaApprovalsCount}")
+        if (data.activityTitles.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Activities:", style = MaterialTheme.typography.labelMedium)
+            data.activityTitles.take(5).forEach {
+                Text("• $it", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (data.ooaaTitles.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("OOAA:", style = MaterialTheme.typography.labelMedium)
+            data.ooaaTitles.take(5).forEach {
+                Text("• $it", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+fun PlannerTile(data: PlannerData?) {
+    TileCard(title = "Planner") {
+        if (data == null) {
+            NotLoaded("Open Planner tab once to populate.")
+            return@TileCard
+        }
+        Text("${data.openTasks} open / ${data.totalTasks} total")
+        if (data.openTitles.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            data.openTitles.take(8).forEach {
+                Text("• $it", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+fun MessagesTile(data: MyAvailData?) {
+    TileCard(title = "myAvailability — Messages") {
+        if (data == null) {
+            NotLoaded("Open myAvail tab once to populate.")
+            return@TileCard
+        }
+        Text("${data.unreadChannels} channels with unread")
+        Text("${data.totalUnread} unread messages total")
+    }
+}
+
+// ---- WebView --------------------------------------------------------------
 
 private fun assignProfileSafely(webView: WebView, profileName: String) {
     if (profileName.isEmpty()) return
@@ -243,6 +498,12 @@ fun SourceWebView(
                 addJavascriptInterface(ScrapeBridge(), "ScrapeBridge")
 
                 webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        // Install interceptor as early as possible — beats Stream Chat to wrapping window.fetch.
+                        view?.evaluateJavascript(buildInterceptorJs(), null)
+                    }
+
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         view?.evaluateJavascript(buildHeightFixJs(), null)
@@ -258,6 +519,8 @@ fun SourceWebView(
         }
     )
 }
+
+// ---- Injected JS (unchanged from chunk 7c) -------------------------------
 
 private fun buildHeightFixJs(): String = """
     (function() {
@@ -329,7 +592,6 @@ private fun buildInterceptorJs(): String = """
                 if (window.__sesFetchLog.length > 50) window.__sesFetchLog.shift();
             }
 
-            // OWA service.svc capture (Outlook).
             if (url.indexOf('owa/service.svc') !== -1 && init && init.body) {
                 var aMatch = url.match(/[?&]action=([^&]+)/);
                 var act = aMatch ? aMatch[1] : 'unknown';
@@ -356,7 +618,6 @@ private fun buildInterceptorJs(): String = """
                 }).catch(function() {});
             }
 
-            // Stream Chat capture.
             if (url.indexOf('stream-io-api.com/channels') !== -1) {
                 captureUserId(url);
                 promise.then(function(response) {
@@ -369,9 +630,6 @@ private fun buildInterceptorJs(): String = """
                 }).catch(function() {});
             }
 
-            // Planner capture: token from headers, and tasks response body —
-            // but only cache responses that have actual data, so that empty
-            // delta-sync responses don't wipe a previously-good cache.
             if (url.indexOf('api.planner.svc.cloud.microsoft') !== -1) {
                 var auth = readAuthHeader(input, init);
                 if (auth) window.__sesPlannerAuth = auth;
@@ -389,6 +647,32 @@ private fun buildInterceptorJs(): String = """
             }
 
             return promise;
+        };
+
+        // Stream Chat uses axios which uses XMLHttpRequest, not fetch.
+        // Wrap XHR too so we catch their /channels calls.
+        var origOpen = XMLHttpRequest.prototype.open;
+        var origSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function(method, url) {
+            this.__sesUrl = url;
+            return origOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function() {
+            var xhr = this;
+            var url = xhr.__sesUrl || '';
+            if (url.indexOf('stream-io-api.com/channels') !== -1) {
+                captureUserId(url);
+                xhr.addEventListener('load', function() {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        window.__sesLastChannels = data;
+                        if (window.__sesHasRefreshed && window.refreshSesData) {
+                            window.refreshSesData();
+                        }
+                    } catch (e) {}
+                });
+            }
+            return origSend.apply(this, arguments);
         };
 
         window.dumpFetchLog = function() {
