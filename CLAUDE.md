@@ -16,18 +16,19 @@ Native Android app (Kotlin + Jetpack Compose) that aggregates:
 Uses Claude Haiku via Anthropic API (key stored in SharedPreferences) to triage action items.
 Data is extracted by injecting JavaScript into WebViews.
 
-### 2. Second Brain / ADHD Memory System (planned — separate app)
+### 2. Second Brain / ADHD Memory System — **Carl's Brain** (`com.carlmanning.carlsbrain`)
 See architecture below.
 
 ## Second Brain — Architecture Decision Record
 
 ### Core concept
-A dedicated Android app as Carl's external memory and ADHD support tool. Claude is the intelligent layer on top — not just a feature, but the operating system of the whole thing.
+A dedicated Android app as Carl's external memory and ADHD support tool. Claude is the intelligent layer on top — not just a feature, but the operating system of the whole thing. Inspired by Microsoft Planner + Google Keep + Todoist, but with Claude as the unifying intelligence.
 
 ### Tech stack
 - **Platform**: Native Android (Kotlin + Jetpack Compose)
 - **Auth + Storage**: Google Drive API (OAuth 2.0 — same Google account as Calendar)
 - **Calendar**: Google Calendar API (read + write)
+- **Local DB**: Room (offline-first; syncs to Drive when connected)
 - **AI**: Anthropic Claude API (Haiku for quick ops, escalate to Sonnet for planning/analysis)
 - **Voice**: Android SpeechRecognizer (fast, on-device) + optional Claude cleanup pass
 - **Notifications**: Android WorkManager + NotificationManager
@@ -41,23 +42,36 @@ A dedicated Android app as Carl's external memory and ADHD support tool. Claude 
     /family/
     /work/
     /personal/
-    /kink/
+    /[vault-buckets]/    ← sensitive buckets hidden in normal views
     /other/
     /[user-created-buckets]/
-  todos.json             ← structured: title, bucket, priority, due, done, created
+  todos.json             ← structured: title, bucket, priority, due, recurrence, done, created
   /audio/                ← optional voice recordings
 ```
 
 ### Life buckets (initial set)
 SES, Family, Work, Personal, Kink, Other
-User can create additional custom buckets and transfer items between buckets.
-Sensitive buckets (e.g. Kink) should offer biometric/PIN access protection.
+- User can create additional custom buckets and transfer items between buckets
+- Any bucket can be marked as **vault** (private) in settings
+
+### Security model
+- **Whole-app biometric lock** on every open (fingerprint / face)
+- **Vault area**: sensitive buckets are invisible in all normal views
+  - Accessed via non-obvious gesture (long-press on brain icon in top bar)
+  - Settings toggle: include vault items in dashboard and notifications (on by default, since app is already biometric-gated)
+- Vault buckets excluded from any unprotected export or share actions
+
+### Todo priority levels
+Urgent / High / Normal / Someday
+
+### Recurring todos
+Supported from day one: daily / weekly / monthly / custom interval
 
 ### Screens
 1. **Dashboard** — morning digest, upcoming GCal events, priority todos, recent notes summary
 2. **Quick Capture** — text field + voice button → Claude auto-tags and sorts into bucket
 3. **Notes** — filterable by bucket, searchable, full markdown view
-4. **Todos** — by bucket/priority/due date, checkable, Claude prioritisation on demand
+4. **Todos** — by bucket/priority/due date, checkable, Claude prioritisation on demand, recurring tasks
 5. **Chat** — full Claude conversation with `memory.md` as system context
 6. **Calendar** — upcoming events, create events from notes/todos via natural language
 
@@ -70,6 +84,23 @@ Sensitive buckets (e.g. Kink) should offer biometric/PIN access protection.
 - Build daily/weekly/life plans using calendar + todos + memory
 - Update `memory.md` with important facts from interactions over time
 
+### Voice notes
+- Android SpeechRecognizer for transcription (on-device, fast)
+- Optional Claude cleanup pass (punctuation, structure) — queued for when online
+- Audio discarded after transcription; only the text is saved
+
+### Claude memory strategy
+- `memory.md` auto-updates with a low threshold for "important"
+- Bias towards building rich context — over-capture is better than under-capture
+- Claude appends silently after interactions; user can view/edit in Settings
+
+### Offline-first strategy
+- Room database is the source of truth on-device
+- Every write goes to Room immediately (instant UX)
+- WorkManager syncs Room → Drive in background when connected
+- Conflict resolution: last-write-wins (single-user app)
+- Claude calls require internet; voice capture queues for cleanup when online
+
 ### Reminders
 - Android push notifications for time-sensitive todos/deadlines
 - Morning digest notification (configurable time) with day summary
@@ -78,6 +109,8 @@ Sensitive buckets (e.g. Kink) should offer biometric/PIN access protection.
 ### Phase 2 (after core is complete)
 - Quick capture home screen widget
 - Dashboard home screen widget
+- Photo/image attachments on notes (stored in Drive /media/)
+- SES Dashboard → Carl's Brain task sync (Planner tasks into SES bucket)
 
 ### Cost estimate
 - Google Drive API: Free (well within personal-use quota)
