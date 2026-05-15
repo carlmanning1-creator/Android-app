@@ -90,9 +90,15 @@ Supported from day one: daily / weekly / monthly / custom interval
 - Audio discarded after transcription; only the text is saved
 
 ### Claude memory strategy
-- `memory.md` auto-updates with a low threshold for "important"
-- Bias towards building rich context — over-capture is better than under-capture
+- `memory.md` pre-seeded on first launch with Carl's known context (SES Deputy, Dubbo Unit, life buckets, etc.)
+- Auto-updates with a low threshold for "important" — bias toward over-capture
 - Claude appends silently after interactions; user can view/edit in Settings
+
+### Anthropic API key
+- Entered by user in Settings screen, stored in SharedPreferences (same pattern as SES Dashboard)
+
+### UI / theme
+- System default (follows Android dark/light mode — Material 3 Dynamic Color)
 
 ### Offline-first strategy
 - Room database is the source of truth on-device
@@ -101,9 +107,15 @@ Supported from day one: daily / weekly / monthly / custom interval
 - Conflict resolution: last-write-wins (single-user app)
 - Claude calls require internet; voice capture queues for cleanup when online
 
+### Dashboard layout (top to bottom)
+1. Claude's daily briefing — AI-generated paragraph: what's on today, what needs attention
+2. Today's calendar events (chronological)
+3. Urgent + High priority todos
+4. Recent notes summary
+
 ### Reminders
 - Android push notifications for time-sensitive todos/deadlines
-- Morning digest notification (configurable time) with day summary
+- Morning digest notification — default 6:30 AM, user-configurable
 - In-app digest on open (today's priorities + upcoming events)
 
 ### Phase 2 (after core is complete)
