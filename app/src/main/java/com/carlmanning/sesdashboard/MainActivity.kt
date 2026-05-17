@@ -18,15 +18,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -37,7 +36,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -391,7 +389,6 @@ class MainActivity : ComponentActivity() {
                     ) {
                         TabRow(currentTab) { currentTab = it }
                         ActionButtons(currentTab, webViewMap)
-                        ExtractionStatusBar()
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -485,26 +482,6 @@ fun ActionButtons(currentTab: String, webViewMap: Map<String, WebView>) {
         ) {
             Text(if (currentTab == DASHBOARD_TAB) "Refresh All" else "Refresh")
         }
-        Button(
-            onClick = {
-                globalWebView?.evaluateJavascript(
-                    "if (window.dumpFetchLog) window.dumpFetchLog();", null
-                )
-            },
-            modifier = Modifier.weight(1f)
-        ) {
-            Text("Fetch log")
-        }
-        Button(
-            onClick = {
-                globalWebView?.evaluateJavascript(
-                    "if (window.dumpSource) window.dumpSource();", null
-                )
-            },
-            modifier = Modifier.weight(1f)
-        ) {
-            Text("Dump")
-        }
     }
 }
 
@@ -534,28 +511,6 @@ private suspend fun triggerActionItemsGeneration(context: Context) {
         actionItemsError.value = e.message ?: "Unknown error"
     } finally {
         actionItemsLoading.value = false
-    }
-}
-
-@Composable
-fun ExtractionStatusBar() {
-    val data by lastExtractedData
-    val scroll = rememberScrollState()
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 24.dp, max = 100.dp)
-    ) {
-        SelectionContainer {
-            Text(
-                text = data,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier
-                    .padding(8.dp)
-                    .verticalScroll(scroll)
-            )
-        }
     }
 }
 
@@ -631,10 +586,10 @@ fun ActionItemsTile(
         when {
             loading -> {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
-                    Spacer(Modifier.height(0.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        "  Asking Claude to triage your unread items…",
+                        "Asking Claude to triage your unread items…",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
