@@ -22,5 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SES Unit Dashboard"
+rootProject.name = "Android Apps"
 include(":app")
+include(":carlsbrain")
