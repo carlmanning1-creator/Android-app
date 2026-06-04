@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SES Unit Dashboard"
+rootProject.name = "RAW Barbell Club"
 include(":app")
