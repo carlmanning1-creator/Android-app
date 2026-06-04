@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.rawbarbell.club.data.local.entity.ExerciseSlotEntity
+import com.rawbarbell.club.data.db.entities.ExerciseSlotEntity
 import com.rawbarbell.club.ui.components.ExerciseCard
 import com.rawbarbell.club.ui.components.PerformanceDropdown
 import com.rawbarbell.club.ui.theme.*
@@ -154,9 +154,9 @@ fun SessionScreen(
 @Composable
 private fun LogBottomSheet(
     slot: ExerciseSlotEntity,
-    existingLog: com.rawbarbell.club.data.local.entity.SessionLogEntity?,
+    existingLog: com.rawbarbell.club.data.db.entities.SessionLogEntity?,
     prescribedWeight: Float?,
-    previousLog: com.rawbarbell.club.data.local.entity.SessionLogEntity?,
+    previousLog: com.rawbarbell.club.data.db.entities.SessionLogEntity?,
     onDismiss: () -> Unit,
     onSave: (Float, Int, String?, Float?, Boolean, String?) -> Unit
 ) {

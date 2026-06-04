@@ -29,8 +29,33 @@ class SessionViewModel @Inject constructor(
     val currentLogs: StateFlow<List<SessionLogEntity>> = programRepo.getLogsForDay(dayId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val logs: StateFlow<List<SessionLogEntity>> = currentLogs
+
     val weekLogs: StateFlow<List<SessionLogEntity>> = programRepo.getLogsForWeek(weekId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _dayNumber = MutableStateFlow(0)
+    val dayNumber: StateFlow<Int> = _dayNumber
+
+    private val _weekNumber = MutableStateFlow(0)
+    val weekNumber: StateFlow<Int> = _weekNumber
+
+    // Previous week logs for comparison (loaded after we know the program)
+    private val _previousWeekLogs = MutableStateFlow<List<SessionLogEntity>>(emptyList())
+
+    init {
+        viewModelScope.launch {
+            programRepo.getDayById(dayId)?.let { day ->
+                _dayNumber.value = day.dayNumber
+                programRepo.getWeekById(weekId)?.let { week ->
+                    _weekNumber.value = week.weekNumber
+                    // Load previous week's logs
+                    programRepo.getPreviousWeekLogs(week.programId, week.weekNumber)
+                        .collect { _previousWeekLogs.value = it }
+                }
+            }
+        }
+    }
 
     private val _prescribedWeights = MutableStateFlow<Map<String, Float?>>(emptyMap())
     val prescribedWeights: StateFlow<Map<String, Float?>> = _prescribedWeights
@@ -92,9 +117,11 @@ class SessionViewModel @Inject constructor(
         }
     }
 
-    fun getLogForSlot(slotId: String): SessionLogEntity? {
-        return currentLogs.value.firstOrNull { it.exerciseSlotId == slotId }
-    }
+    fun getLogForSlot(slotId: String): SessionLogEntity? =
+        currentLogs.value.firstOrNull { it.exerciseSlotId == slotId }
+
+    fun getPreviousLog(slotId: String): SessionLogEntity? =
+        _previousWeekLogs.value.firstOrNull { it.exerciseSlotId == slotId }
 
     fun markDayComplete() {
         viewModelScope.launch { programRepo.markDayComplete(dayId) }

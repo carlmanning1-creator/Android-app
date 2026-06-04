@@ -81,4 +81,19 @@ class ProgramRepository @Inject constructor(
 
     suspend fun deleteExercise(id: String) =
         exerciseSlotDao.deleteExercise(id)
+
+    suspend fun getDayById(dayId: String): DayEntity? =
+        dayDao.getDayById(dayId)
+
+    suspend fun getWeekById(weekId: String): WeekEntity? =
+        weekDao.getWeekByIdOnce(weekId)
+
+    suspend fun markDayComplete(dayId: String) =
+        dayDao.markDayComplete(dayId)
+
+    suspend fun markWeekComplete(weekId: String) =
+        weekDao.markWeekComplete(weekId, System.currentTimeMillis())
+
+    fun getPreviousWeekLogs(programId: String, currentWeekNumber: Int): Flow<List<SessionLogEntity>> =
+        sessionLogDao.getLogsForProgramBeforeWeek(programId, currentWeekNumber)
 }

@@ -13,6 +13,9 @@ interface WeekDao {
     @Query("SELECT * FROM weeks WHERE id = :id")
     fun getWeekById(id: String): Flow<WeekEntity?>
 
+    @Query("SELECT * FROM weeks WHERE id = :id LIMIT 1")
+    suspend fun getWeekByIdOnce(id: String): WeekEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWeek(week: WeekEntity)
 

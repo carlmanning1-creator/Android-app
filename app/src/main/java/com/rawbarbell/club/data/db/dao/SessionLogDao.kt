@@ -27,4 +27,12 @@ interface SessionLogDao {
 
     @Query("SELECT * FROM session_logs WHERE exerciseSlotId IN (SELECT id FROM exercise_slots WHERE programId = :programId) ORDER BY loggedAt ASC")
     suspend fun getLogsForProgram(programId: String): List<SessionLogEntity>
+
+    @Query("""
+        SELECT sl.* FROM session_logs sl
+        INNER JOIN weeks w ON sl.weekId = w.id
+        WHERE w.programId = :programId AND w.weekNumber < :currentWeekNumber
+        ORDER BY w.weekNumber DESC, sl.loggedAt DESC
+    """)
+    fun getLogsForProgramBeforeWeek(programId: String, currentWeekNumber: Int): Flow<List<SessionLogEntity>>
 }
