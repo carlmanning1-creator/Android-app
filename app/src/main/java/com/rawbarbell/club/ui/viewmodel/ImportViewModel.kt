@@ -130,7 +130,19 @@ class ImportViewModel @Inject constructor(
 
                 val (program, exercises) = sheetsImporter.parseSheetData(weekData, programName)
                 programRepo.createProgram(program)
-                exercises.forEach { programRepo.addExerciseToDay(it) }
+
+                // Fetch real week/day IDs created by createProgram
+                val weeks = programRepo.getWeeksForProgram(program.id).first()
+                val days = weeks.flatMap { week ->
+                    programRepo.getDaysForWeek(week.id).first()
+                }
+                // Default: assign all exercises to day 1 of week 1
+                val defaultDay = days.firstOrNull()
+                    ?: throw Exception("No days found after program creation")
+
+                exercises.forEach { slot ->
+                    programRepo.addExerciseToDay(slot.copy(dayId = defaultDay.id))
+                }
 
                 _importedProgramId.value = program.id
             } catch (e: Exception) {
