@@ -21,3 +21,4 @@ local.properties
 .claude/memory.db
 .swarm/
 ruvector.db
+.claude-flow/metrics/security-audit.json
