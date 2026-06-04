@@ -11,11 +11,5 @@ interface WeekJournalDao {
     fun getJournalForWeek(weekId: String): Flow<WeekJournalEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertJournal(journal: WeekJournalEntity)
-
-    @Update
-    suspend fun updateJournal(journal: WeekJournalEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertJournal(journal: WeekJournalEntity)
 }

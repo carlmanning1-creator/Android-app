@@ -55,6 +55,11 @@ class ProgramBuilderViewModel @Inject constructor(
     private val _savedProgramId = MutableStateFlow<String?>(null)
     val savedProgramId: StateFlow<String?> = _savedProgramId
 
+    private val _saveError = MutableStateFlow<String?>(null)
+    val saveError: StateFlow<String?> = _saveError
+
+    fun clearSaveError() { _saveError.value = null }
+
     fun updateName(value: String) { _name.value = value }
     fun updateSportType(value: String) { _sportType.value = value }
     fun updateDaysPerWeek(value: Int) { _daysPerWeek.value = value }
@@ -81,6 +86,7 @@ class ProgramBuilderViewModel @Inject constructor(
     fun saveProgram() {
         viewModelScope.launch {
             _isSaving.value = true
+            _saveError.value = null
             try {
                 val programId = UUID.randomUUID().toString()
                 val program = ProgramEntity(
@@ -131,6 +137,8 @@ class ProgramBuilderViewModel @Inject constructor(
                 }
 
                 _savedProgramId.value = programId
+            } catch (e: Exception) {
+                _saveError.value = "Failed to save program: ${e.message}"
             } finally {
                 _isSaving.value = false
             }

@@ -67,6 +67,7 @@ fun ProgramBuilderScreen(
     val exercisesByDay by viewModel.exercisesByDay.collectAsState()
     val isSaving by viewModel.isSaving.collectAsState()
     val savedProgramId by viewModel.savedProgramId.collectAsState()
+    val saveError by viewModel.saveError.collectAsState()
 
     var currentStep by remember { mutableIntStateOf(0) } // 0 = details, 1 = exercises
     var showAddExerciseDialog by remember { mutableStateOf(false) }
@@ -318,6 +319,20 @@ fun ProgramBuilderScreen(
                 }
             }
         }
+    }
+
+    if (!saveError.isNullOrBlank()) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearSaveError() },
+            containerColor = SurfaceDark,
+            title = { Text("Save Failed", color = WhiteText, fontWeight = FontWeight.Bold) },
+            text = { Text(saveError!!, color = WhiteText.copy(alpha = 0.8f), fontSize = 14.sp) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearSaveError() }) {
+                    Text("OK", color = TealAccent, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 
     if (showAddExerciseDialog) {

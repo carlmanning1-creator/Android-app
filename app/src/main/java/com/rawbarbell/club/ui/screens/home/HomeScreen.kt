@@ -102,7 +102,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentPadding = PaddingValues(bottom = 100.dp)
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp)
             ) {
                 // Program name
                 item {

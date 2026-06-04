@@ -37,10 +37,12 @@ class HomeViewModel @Inject constructor(
                         programRepo.getDaysForWeek(week.id).collectLatest { days ->
                             val incompleteDay = days.filter { !it.isCompleted }.minByOrNull { it.dayNumber }
                             _todayDay.value = incompleteDay
-                            incompleteDay?.let { day ->
-                                programRepo.getExercisesForDay(day.id).collectLatest { exercises ->
+                            if (incompleteDay != null) {
+                                programRepo.getExercisesForDay(incompleteDay.id).collectLatest { exercises ->
                                     _todayExercises.value = exercises.sortedBy { it.orderIndex }
                                 }
+                            } else {
+                                _todayExercises.value = emptyList()
                             }
                         }
                     }

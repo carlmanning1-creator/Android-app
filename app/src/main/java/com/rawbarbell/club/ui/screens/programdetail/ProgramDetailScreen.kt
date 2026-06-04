@@ -82,9 +82,7 @@ fun ProgramDetailScreen(
                         InfoBlock("SPORT", p.sportType ?: "-")
                         InfoBlock("DAYS/WK", "${p.daysPerWeek}")
                         InfoBlock("BLOCK", p.blockType ?: "-")
-                        if (p.totalWeeks != null) {
-                            InfoBlock("WEEKS", "${p.totalWeeks}")
-                        }
+                        InfoBlock("WEEKS", "${p.totalWeeks}")
                     }
                 }
             }

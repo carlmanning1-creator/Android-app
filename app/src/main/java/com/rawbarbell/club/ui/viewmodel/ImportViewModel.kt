@@ -47,6 +47,7 @@ class ImportViewModel @Inject constructor(
     val spreadsheetUrl: StateFlow<String> = _spreadsheetUrl
 
     private var signedInAccount: GoogleSignInAccount? = null
+    private val httpClient = OkHttpClient()
 
     fun buildSignInIntent(context: Context): Intent {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -155,7 +156,7 @@ class ImportViewModel @Inject constructor(
 
     private fun fetchSheetNames(spreadsheetId: String, token: String): List<String> {
         val url = "$SHEETS_API/$spreadsheetId?fields=sheets.properties.title"
-        val client = OkHttpClient()
+        val client = httpClient
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $token")
@@ -173,7 +174,7 @@ class ImportViewModel @Inject constructor(
     private fun fetchSheetTab(spreadsheetId: String, tab: String, token: String): String {
         val encodedTab = java.net.URLEncoder.encode(tab, "UTF-8").replace("+", "%20")
         val url = "$SHEETS_API/$spreadsheetId/values/$encodedTab?majorDimension=ROWS"
-        val client = OkHttpClient()
+        val client = httpClient
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $token")

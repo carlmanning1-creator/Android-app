@@ -16,9 +16,6 @@ interface SessionLogDao {
     @Query("SELECT * FROM session_logs WHERE weekId = :weekId ORDER BY loggedAt ASC")
     fun getLogsForWeek(weekId: String): Flow<List<SessionLogEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertLog(log: SessionLogEntity)
-
     @Update
     suspend fun updateLog(log: SessionLogEntity)
 
