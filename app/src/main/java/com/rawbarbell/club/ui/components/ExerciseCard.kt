@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -66,13 +66,13 @@ fun ExerciseCard(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // Exercise type chip
-                val typeColor = exerciseTypeColor(slot.exerciseType ?: "")
+                val typeColor = exerciseTypeColor(slot.exerciseType)
                 Surface(
                     color = typeColor.copy(alpha = 0.2f),
                     shape = RoundedCornerShape(4.dp)
                 ) {
                     Text(
-                        text = slot.exerciseType ?: "",
+                        text = slot.exerciseType,
                         color = typeColor,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -82,9 +82,9 @@ fun ExerciseCard(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                if (slot.filmingRequired == true) {
+                if (slot.filmingRequired) {
                     Icon(
-                        imageVector = Icons.Default.CameraAlt,
+                        imageVector = Icons.Default.PhotoCamera,
                         contentDescription = "Filming required",
                         tint = YellowHighlight,
                         modifier = Modifier.size(16.dp)
@@ -113,7 +113,7 @@ fun ExerciseCard(
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.width(16.dp))
-                if ((slot.relIntensity ?: 0f) > 0f) {
+                if (slot.relIntensity > 0f) {
                     Text(
                         text = "${slot.relIntensity}%",
                         color = YellowHighlight,
@@ -132,7 +132,7 @@ fun ExerciseCard(
             }
 
             // Notes
-            if (!slot.notes.isNullOrBlank()) {
+            if (slot.notes.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = slot.notes,
