@@ -1,8 +1,5 @@
 package com.rawbarbell.club.ui.navigation
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Home
@@ -14,14 +11,24 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.padding
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.rawbarbell.club.ui.screens.home.HomeScreen
+import com.rawbarbell.club.ui.screens.programs.ProgramsScreen
+import com.rawbarbell.club.ui.screens.maxes.MaxesScreen
+import com.rawbarbell.club.ui.screens.journal.JournalScreen
+import com.rawbarbell.club.ui.screens.programdetail.ProgramDetailScreen
+import com.rawbarbell.club.ui.screens.session.SessionScreen
+import com.rawbarbell.club.ui.screens.builder.ProgramBuilderScreen
+import com.rawbarbell.club.ui.screens.importsheet.ImportSheetScreen
 
 private data class BottomNavItem(
     val label: String,
@@ -80,39 +87,41 @@ fun AppNavigation() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Home.route) {
-                PlaceholderScreen("Home")
+                HomeScreen(navController = navController)
             }
             composable(Screen.Programs.route) {
-                PlaceholderScreen("Programs")
+                ProgramsScreen(navController = navController)
             }
             composable(Screen.Maxes.route) {
-                PlaceholderScreen("Maxes")
+                MaxesScreen()
             }
-            composable(Screen.Journal.route) {
-                PlaceholderScreen("Journal")
+            composable(
+                route = Screen.Journal.route,
+                arguments = listOf(navArgument("weekId") { type = NavType.StringType })
+            ) {
+                JournalScreen(navController = navController)
             }
-            composable(Screen.ProgramDetail.route) {
-                PlaceholderScreen("Program Detail")
+            composable(
+                route = Screen.ProgramDetail.route,
+                arguments = listOf(navArgument("programId") { type = NavType.StringType })
+            ) {
+                ProgramDetailScreen(navController = navController)
             }
-            composable(Screen.Session.route) {
-                PlaceholderScreen("Session")
+            composable(
+                route = Screen.Session.route,
+                arguments = listOf(
+                    navArgument("dayId") { type = NavType.StringType },
+                    navArgument("weekId") { type = NavType.StringType }
+                )
+            ) {
+                SessionScreen(navController = navController)
             }
             composable(Screen.ProgramBuilder.route) {
-                PlaceholderScreen("Program Builder")
+                ProgramBuilderScreen(navController = navController)
             }
             composable(Screen.ImportSheet.route) {
-                PlaceholderScreen("Import Sheet")
+                ImportSheetScreen(navController = navController)
             }
         }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(name: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text = name)
     }
 }

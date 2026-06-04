@@ -10,6 +10,19 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
+data class ExerciseBuilderItem(
+    val id: String = UUID.randomUUID().toString(),
+    val exerciseName: String,
+    val category: String,
+    val exerciseType: String,
+    val sets: Int,
+    val reps: Int,
+    val intensityPct: Float,
+    val progressionModel: String = "PERCENTAGE",
+    val notes: String? = null,
+    val maxReference: String? = null
+)
+
 @HiltViewModel
 class ProgramBuilderViewModel @Inject constructor(
     private val programRepo: ProgramRepository
@@ -18,13 +31,13 @@ class ProgramBuilderViewModel @Inject constructor(
     private val _name = MutableStateFlow("")
     val name: StateFlow<String> = _name
 
-    private val _sportType = MutableStateFlow("")
+    private val _sportType = MutableStateFlow("WEIGHTLIFTING")
     val sportType: StateFlow<String> = _sportType
 
     private val _daysPerWeek = MutableStateFlow(3)
     val daysPerWeek: StateFlow<Int> = _daysPerWeek
 
-    private val _totalWeeks = MutableStateFlow(4)
+    private val _totalWeeks = MutableStateFlow(8)
     val totalWeeks: StateFlow<Int> = _totalWeeks
 
     private val _coachName = MutableStateFlow("")
@@ -33,8 +46,8 @@ class ProgramBuilderViewModel @Inject constructor(
     private val _blockType = MutableStateFlow("")
     val blockType: StateFlow<String> = _blockType
 
-    private val _exercisesByDay = MutableStateFlow<Map<Int, List<ExerciseSlotEntity>>>(emptyMap())
-    val exercisesByDay: StateFlow<Map<Int, List<ExerciseSlotEntity>>> = _exercisesByDay
+    private val _exercisesByDay = MutableStateFlow<Map<Int, List<ExerciseBuilderItem>>>(emptyMap())
+    val exercisesByDay: StateFlow<Map<Int, List<ExerciseBuilderItem>>> = _exercisesByDay
 
     private val _isSaving = MutableStateFlow(false)
     val isSaving: StateFlow<Boolean> = _isSaving
@@ -42,33 +55,26 @@ class ProgramBuilderViewModel @Inject constructor(
     private val _savedProgramId = MutableStateFlow<String?>(null)
     val savedProgramId: StateFlow<String?> = _savedProgramId
 
-    fun setName(value: String) { _name.value = value }
-    fun setSportType(value: String) { _sportType.value = value }
-    fun setDaysPerWeek(value: Int) { _daysPerWeek.value = value }
-    fun setTotalWeeks(value: Int) { _totalWeeks.value = value }
-    fun setCoachName(value: String) { _coachName.value = value }
-    fun setBlockType(value: String) { _blockType.value = value }
+    fun updateName(value: String) { _name.value = value }
+    fun updateSportType(value: String) { _sportType.value = value }
+    fun updateDaysPerWeek(value: Int) { _daysPerWeek.value = value }
+    fun updateTotalWeeks(value: Int) { _totalWeeks.value = value }
+    fun updateCoachName(value: String) { _coachName.value = value }
+    fun updateBlockType(value: String) { _blockType.value = value }
 
-    fun addExercise(dayNumber: Int, slot: ExerciseSlotEntity) {
+    fun addExercise(dayNumber: Int, item: ExerciseBuilderItem) {
         val current = _exercisesByDay.value.toMutableMap()
         val dayList = current[dayNumber]?.toMutableList() ?: mutableListOf()
-        dayList.add(slot.copy(orderIndex = dayList.size))
+        dayList.add(item)
         current[dayNumber] = dayList
         _exercisesByDay.value = current
     }
 
-    fun removeExercise(dayNumber: Int, slotId: String) {
+    fun removeExercise(dayNumber: Int, item: ExerciseBuilderItem) {
         val current = _exercisesByDay.value.toMutableMap()
         val dayList = current[dayNumber]?.toMutableList() ?: return
-        dayList.removeAll { it.id == slotId }
-        val reindexed = dayList.mapIndexed { idx, slot -> slot.copy(orderIndex = idx) }
-        current[dayNumber] = reindexed
-        _exercisesByDay.value = current
-    }
-
-    fun reorderExercises(dayNumber: Int, reordered: List<ExerciseSlotEntity>) {
-        val current = _exercisesByDay.value.toMutableMap()
-        current[dayNumber] = reordered.mapIndexed { idx, slot -> slot.copy(orderIndex = idx) }
+        dayList.removeAll { it.id == item.id }
+        current[dayNumber] = dayList
         _exercisesByDay.value = current
     }
 
@@ -86,16 +92,41 @@ class ProgramBuilderViewModel @Inject constructor(
                     createdAt = System.currentTimeMillis(),
                     completedAt = null,
                     sourceSheetId = null,
-                    coachName = _coachName.value,
-                    blockType = _blockType.value,
+                    coachName = _coachName.value.takeIf { it.isNotBlank() },
+                    blockType = _blockType.value.takeIf { it.isNotBlank() },
                     totalWeeks = _totalWeeks.value
                 )
                 programRepo.createProgram(program)
 
+                val weeks = programRepo.getWeeksForProgram(programId).first()
+                val days = weeks.flatMap { week ->
+                    programRepo.getDaysForWeek(week.id).first()
+                }
+
                 val exercisesMap = _exercisesByDay.value
-                for ((_, slots) in exercisesMap) {
-                    for (slot in slots) {
-                        programRepo.addExerciseToDay(slot.copy(programId = programId))
+                for ((dayNumber, items) in exercisesMap) {
+                    val matchingDay = days.firstOrNull { it.dayNumber == dayNumber } ?: continue
+                    items.forEachIndexed { idx, item ->
+                        programRepo.addExerciseToDay(
+                            ExerciseSlotEntity(
+                                id = UUID.randomUUID().toString(),
+                                dayId = matchingDay.id,
+                                programId = programId,
+                                slotCode = "${dayNumber}_${idx + 1}",
+                                exerciseName = item.exerciseName,
+                                exerciseType = item.exerciseType,
+                                category = item.category,
+                                sets = item.sets,
+                                reps = item.reps,
+                                relIntensity = item.intensityPct / 100f,
+                                progressionModel = item.progressionModel,
+                                format = null,
+                                notes = item.notes,
+                                maxReference = item.maxReference,
+                                filmingRequired = false,
+                                orderIndex = idx
+                            )
+                        )
                     }
                 }
 
