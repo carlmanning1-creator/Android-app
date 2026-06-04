@@ -21,8 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.navigation.NavController
-import com.rawbarbell.club.data.local.entity.PersonalBestEntity
+import com.rawbarbell.club.data.db.entities.PersonalBestEntity
 import com.rawbarbell.club.ui.theme.*
 import com.rawbarbell.club.ui.viewmodel.MaxesViewModel
 import java.text.SimpleDateFormat
@@ -54,7 +53,6 @@ fun categoryForExercise(name: String): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MaxesScreen(
-    navController: NavController,
     viewModel: MaxesViewModel = hiltViewModel()
 ) {
     val pbs by viewModel.pbs.collectAsState()
@@ -172,10 +170,9 @@ fun MaxesScreen(
             onDismiss = { showAddDialog = false },
             onSave = { name, max, notes ->
                 viewModel.savePB(
-                    id = editingPb?.id ?: 0L,
                     exerciseName = name,
                     max = max,
-                    notes = notes
+                    notes = notes ?: ""
                 )
                 showAddDialog = false
             }

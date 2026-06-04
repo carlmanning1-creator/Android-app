@@ -218,11 +218,12 @@ fun JournalScreen(
                         .joinToString("|")
 
                     viewModel.saveJournal(
-                        timeToComplete = timeToComplete.takeIf { it.isNotBlank() },
+                        programId = viewModel.journal.value?.programId ?: "",
+                        timeToComplete = timeToComplete,
                         recoveryRating = recoveryRating.toInt(),
-                        highlights = highlights.takeIf { it.isNotBlank() },
-                        lowpoints = lowpoints.takeIf { it.isNotBlank() },
-                        injuries = injuries.takeIf { it.isNotBlank() }
+                        highlights = highlights,
+                        lowpoints = lowpoints,
+                        injuries = injuries
                     )
                     navController.popBackStack()
                 },

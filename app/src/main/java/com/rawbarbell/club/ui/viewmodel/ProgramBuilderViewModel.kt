@@ -120,8 +120,8 @@ class ProgramBuilderViewModel @Inject constructor(
                                 reps = item.reps,
                                 relIntensity = item.intensityPct / 100f,
                                 progressionModel = item.progressionModel,
-                                format = null,
-                                notes = item.notes,
+                                format = "Per",
+                                notes = item.notes ?: "",
                                 maxReference = item.maxReference,
                                 filmingRequired = false,
                                 orderIndex = idx

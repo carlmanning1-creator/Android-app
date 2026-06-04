@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,8 +17,8 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.rawbarbell.club.data.local.entity.ExerciseSlotEntity
-import com.rawbarbell.club.data.local.entity.SessionLogEntity
+import com.rawbarbell.club.data.db.entities.ExerciseSlotEntity
+import com.rawbarbell.club.data.db.entities.SessionLogEntity
 import com.rawbarbell.club.ui.theme.*
 
 fun exerciseTypeColor(type: String): Color = when (type.uppercase()) {
@@ -84,7 +84,7 @@ fun ExerciseCard(
 
                 if (slot.filmingRequired == true) {
                     Icon(
-                        imageVector = Icons.Default.Videocam,
+                        imageVector = Icons.Default.CameraAlt,
                         contentDescription = "Filming required",
                         tint = YellowHighlight,
                         modifier = Modifier.size(16.dp)

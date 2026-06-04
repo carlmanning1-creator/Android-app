@@ -1,9 +1,9 @@
 package com.rawbarbell.club.ui.navigation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -42,8 +42,8 @@ fun AppNavigation() {
 
     val bottomNavItems = listOf(
         BottomNavItem("Home", Icons.Filled.Home, Screen.Home),
-        BottomNavItem("Programs", Icons.Filled.ListAlt, Screen.Programs),
-        BottomNavItem("Maxes", Icons.Filled.FitnessCenter, Screen.Maxes),
+        BottomNavItem("Programs", Icons.Filled.List, Screen.Programs),
+        BottomNavItem("Maxes", Icons.Filled.Star, Screen.Maxes),
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()

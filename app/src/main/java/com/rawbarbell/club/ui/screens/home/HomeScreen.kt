@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.rawbarbell.club.navigation.Screen
+import com.rawbarbell.club.ui.navigation.Screen
 import com.rawbarbell.club.ui.components.ExerciseCard
 import com.rawbarbell.club.ui.theme.*
 import com.rawbarbell.club.ui.viewmodel.HomeViewModel
@@ -160,12 +160,10 @@ fun HomeScreen(
 
                 // Exercise list
                 items(todayExercises) { slot ->
-                    val log = viewModel.getLogForSlot(slot.id)
-                    val prescribed = viewModel.prescribedWeights[slot.id]
                     ExerciseCard(
                         slot = slot,
-                        log = log,
-                        prescribedWeight = prescribed,
+                        log = null,
+                        prescribedWeight = null,
                         onLog = {}
                     )
                     Spacer(modifier = Modifier.height(8.dp))

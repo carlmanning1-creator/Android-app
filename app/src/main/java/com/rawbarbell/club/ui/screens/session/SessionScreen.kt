@@ -142,7 +142,7 @@ fun SessionScreen(
                     performance = performance,
                     rpe = rpe,
                     filmingDone = filmingDone,
-                    notes = notes
+                    notes = notes ?: ""
                 )
                 showSheet = false
             }

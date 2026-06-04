@@ -22,8 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.rawbarbell.club.data.local.entity.ProgramEntity
-import com.rawbarbell.club.navigation.Screen
+import com.rawbarbell.club.data.db.entities.ProgramEntity
+import com.rawbarbell.club.ui.navigation.Screen
 import com.rawbarbell.club.ui.theme.*
 import com.rawbarbell.club.ui.viewmodel.ProgramsViewModel
 import java.text.SimpleDateFormat

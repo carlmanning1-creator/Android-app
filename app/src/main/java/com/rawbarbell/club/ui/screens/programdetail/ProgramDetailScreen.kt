@@ -9,8 +9,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,9 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.rawbarbell.club.data.local.entity.DayEntity
-import com.rawbarbell.club.data.local.entity.WeekEntity
-import com.rawbarbell.club.navigation.Screen
+import com.rawbarbell.club.data.db.entities.DayEntity
+import com.rawbarbell.club.data.db.entities.WeekEntity
+import com.rawbarbell.club.ui.navigation.Screen
 import com.rawbarbell.club.ui.components.WeekHeader
 import com.rawbarbell.club.ui.theme.*
 import com.rawbarbell.club.ui.viewmodel.ProgramDetailViewModel
@@ -38,7 +38,7 @@ fun ProgramDetailScreen(
     val weeks by viewModel.weeks.collectAsState()
     val selectedWeekDays by viewModel.selectedWeekDays.collectAsState()
 
-    var expandedWeekId by remember { mutableStateOf<Long?>(null) }
+    var expandedWeekId by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -144,7 +144,7 @@ private fun WeekSection(
     onDayClick: (DayEntity) -> Unit,
     onCompleteWeek: () -> Unit,
     navController: NavController,
-    weekId: Long
+    weekId: String
 ) {
     val completedDays = days.count { it.isCompleted }
 
@@ -163,7 +163,7 @@ private fun WeekSection(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Icon(
-                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                 contentDescription = if (isExpanded) "Collapse" else "Expand",
                 tint = WhiteText.copy(alpha = 0.6f),
                 modifier = Modifier.size(24.dp)
