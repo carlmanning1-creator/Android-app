@@ -1,5 +1,7 @@
 package com.rawbarbell.club.ui.screens.importsheet
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -15,7 +17,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -34,8 +35,15 @@ fun ImportSheetScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val importedProgramId by viewModel.importedProgramId.collectAsState()
+    val isSignedIn by viewModel.isSignedIn.collectAsState()
 
     val context = LocalContext.current
+
+    val signInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        viewModel.handleSignInResult(context, result.data)
+    }
 
     LaunchedEffect(importedProgramId) {
         importedProgramId?.let { id ->
@@ -91,7 +99,7 @@ fun ImportSheetScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "Paste your Google Sheets URL below, or sign in with Google to browse your sheets.",
+                    "Sign in with Google, then paste your Sheets URL to import your program.",
                     color = WhiteText.copy(alpha = 0.8f),
                     fontSize = 13.sp,
                     lineHeight = 18.sp
@@ -102,6 +110,52 @@ fun ImportSheetScreen(
                     color = WhiteText.copy(alpha = 0.5f),
                     fontSize = 12.sp
                 )
+            }
+
+            // Google Sign In / signed-in status
+            if (isSignedIn) {
+                Surface(
+                    color = TealAccent.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "✓ Signed in with Google",
+                        color = TealAccent,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {
+                        val intent = viewModel.buildSignInIntent(context)
+                        signInLauncher.launch(intent)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                ) {
+                    Text(
+                        text = "Sign in with Google",
+                        color = Color(0xFF1A1A1A),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+
+            // Divider
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                HorizontalDivider(modifier = Modifier.weight(1f), color = PurpleLight)
+                Text("  THEN  ", color = WhiteText.copy(alpha = 0.4f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                HorizontalDivider(modifier = Modifier.weight(1f), color = PurpleLight)
             }
 
             // URL input
@@ -126,7 +180,7 @@ fun ImportSheetScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Import from URL button
+            // Import button
             Button(
                 onClick = { viewModel.importSheet(context) },
                 enabled = spreadsheetUrl.isNotBlank() && !isLoading,
@@ -137,20 +191,11 @@ fun ImportSheetScreen(
                     .height(52.dp)
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(
-                        color = WhiteText,
-                        modifier = Modifier.size(22.dp),
-                        strokeWidth = 2.5.dp
-                    )
+                    CircularProgressIndicator(color = WhiteText, modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
                     Spacer(modifier = Modifier.width(12.dp))
                     Text("Importing…", color = WhiteText, fontWeight = FontWeight.Bold)
                 } else {
-                    Text(
-                        "Import from URL",
-                        color = WhiteText,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 15.sp
-                    )
+                    Text("Import Program", color = WhiteText, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
                 }
             }
 
@@ -168,67 +213,6 @@ fun ImportSheetScreen(
                         modifier = Modifier.padding(12.dp)
                     )
                 }
-            }
-
-            // Divider
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                HorizontalDivider(
-                    modifier = Modifier.weight(1f),
-                    color = PurpleLight
-                )
-                Text(
-                    "  OR  ",
-                    color = WhiteText.copy(alpha = 0.4f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                HorizontalDivider(
-                    modifier = Modifier.weight(1f),
-                    color = PurpleLight
-                )
-            }
-
-            // Google Sign In button
-            Button(
-                onClick = { /* TODO: Trigger Google OAuth sign-in flow */ },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Text(
-                    text = "🔵 Sign in with Google",
-                    color = Color(0xFF1A1A1A),
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp
-                )
-            }
-
-            // Setup guide card
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(PurplePrimary.copy(alpha = 0.6f))
-                    .padding(14.dp)
-            ) {
-                Text(
-                    "Setup Required",
-                    color = YellowHighlight,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    "Google sign-in requires OAuth configuration.\nSee code comments in SheetsImporter.kt for detailed setup instructions including:\n• Google Cloud Console project setup\n• OAuth 2.0 credentials\n• Drive API scope configuration",
-                    color = WhiteText.copy(alpha = 0.65f),
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp
-                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))

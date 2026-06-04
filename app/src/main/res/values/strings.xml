@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">RAW Barbell Club</string>
+    <string name="google_oauth_client_id">83875455304-b762vc90lr351cpbbb4dse270n8626ed.apps.googleusercontent.com</string>
 </resources>
