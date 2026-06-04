@@ -1,0 +1,8 @@
+{
+  "id": "swarm-1780551663503-2jhtrv",
+  "topology": "hierarchical-mesh",
+  "maxAgents": 15,
+  "strategy": "development",
+  "initializedAt": "2026-06-04T05:41:03.503Z",
+  "status": "ready"
+}

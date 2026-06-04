@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-06-04T05:40:59.651Z",
+  "projectRoot": "/home/user/Android-app",
+  "structure": {
+    "hasPackageJson": false,
+    "hasTsConfig": false,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1780551659651
+}
