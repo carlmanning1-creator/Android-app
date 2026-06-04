@@ -102,7 +102,7 @@ class ImportViewModel @Inject constructor(
                 val token = withContext(Dispatchers.IO) {
                     GoogleAuthUtil.getToken(
                         context,
-                        Account(account.email, "com.google"),
+                        Account(account.email ?: throw Exception("No email on Google account"), "com.google"),
                         SHEETS_SCOPE
                     )
                 }
