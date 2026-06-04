@@ -107,9 +107,22 @@ class ImportViewModel @Inject constructor(
                     )
                 }
 
-                // Fetch the first week tab to determine structure
+                // Fetch metadata to discover actual tab names
+                val sheetNames = withContext(Dispatchers.IO) {
+                    fetchSheetNames(sheetId, token)
+                }
+
+                // Find week tabs (e.g. "Week 1", "Week 2", ...)
+                val weekTabs = sheetNames.filter { name ->
+                    name.matches(Regex("(?i)week\\s*\\d+"))
+                }.sortedWith(compareBy { it.replace(Regex("\\D"), "").toIntOrNull() ?: 0 })
+
+                val firstTab = weekTabs.firstOrNull()
+                    ?: sheetNames.firstOrNull()
+                    ?: throw Exception("No sheets found in spreadsheet. Tab names found: $sheetNames")
+
                 val weekData = withContext(Dispatchers.IO) {
-                    fetchSheetTab(sheetId, "Week 1", token)
+                    fetchSheetTab(sheetId, firstTab, token)
                 }
 
                 val programName = account.displayName?.let { "$it — Imported Program" }
@@ -128,16 +141,34 @@ class ImportViewModel @Inject constructor(
         }
     }
 
-    private fun fetchSheetTab(spreadsheetId: String, tab: String, token: String): String {
-        val url = "$SHEETS_API/$spreadsheetId/values/${tab.replace(" ", "%20")}?majorDimension=ROWS"
+    private fun fetchSheetNames(spreadsheetId: String, token: String): List<String> {
+        val url = "$SHEETS_API/$spreadsheetId?fields=sheets.properties.title"
         val client = OkHttpClient()
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $token")
             .build()
         val response = client.newCall(request).execute()
-        if (!response.isSuccessful) throw Exception("Sheets API error ${response.code}: ${response.message}")
+        val body = response.body?.string() ?: return emptyList()
+        if (!response.isSuccessful) throw Exception("Sheets metadata error ${response.code}: $body")
+        val obj = JSONObject(body)
+        val sheets = obj.optJSONArray("sheets") ?: return emptyList()
+        return (0 until sheets.length()).map {
+            sheets.getJSONObject(it).getJSONObject("properties").getString("title")
+        }
+    }
+
+    private fun fetchSheetTab(spreadsheetId: String, tab: String, token: String): String {
+        val encodedTab = java.net.URLEncoder.encode(tab, "UTF-8").replace("+", "%20")
+        val url = "$SHEETS_API/$spreadsheetId/values/$encodedTab?majorDimension=ROWS"
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
+        val response = client.newCall(request).execute()
         val body = response.body?.string() ?: throw Exception("Empty response from Sheets API")
+        if (!response.isSuccessful) throw Exception("Sheets API error ${response.code}: $body")
         return parseSheetJsonToTsv(body)
     }
 
