@@ -81,15 +81,10 @@ class SessionViewModel @Inject constructor(
         weightDone: Float?,
         repsDone: Int?,
         performance: String?,
-        rpe: Float?,
         filmingDone: Boolean,
         notes: String
     ) {
         viewModelScope.launch {
-            val e1rm = if (weightDone != null && repsDone != null && repsDone > 0) {
-                weightDone * (1 + repsDone / 30f)
-            } else null
-
             val prescribed = _prescribedWeights.value[slotId]
             val existing = getLogForSlot(slotId)
 
@@ -102,8 +97,8 @@ class SessionViewModel @Inject constructor(
                 weightDone = weightDone,
                 repsDone = repsDone,
                 performance = performance,
-                rpe = rpe,
-                e1rm = e1rm,
+                rpe = null,
+                e1rm = null,
                 filmingDone = filmingDone,
                 notes = notes,
                 loggedAt = System.currentTimeMillis()
