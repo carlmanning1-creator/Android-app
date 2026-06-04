@@ -1,0 +1,122 @@
+{
+  "timestamp": "2026-06-04T05:46:32.765Z",
+  "mode": "headless",
+  "workerType": "optimize",
+  "model": "sonnet",
+  "durationMs": 93111,
+  "executionId": "optimize_1780551899654_gvj6rr",
+  "success": true,
+  "findings": {
+    "sections": [
+      {
+        "title": "Performance Analysis — `MainActivity.kt`",
+        "content": "\nThis is a Compose/Android app, not React, so \"re-renders\" map to **Compose recompositions**. Here are the real issues found:\n\n---\n\n",
+        "level": 2
+      },
+      {
+        "title": "1. N+1 Pattern — Fixed 3-Second Blind Delay",
+        "content": "\n**Location:** `ActionButtons` → `triggerActionItemsGeneration`, line ~471\n\n```kotlin\nscope.launch {\n    kotlinx.coroutines.delay(3000)   // ← blind wait, not data-driven\n    triggerActionItemsGeneration(context)\n}\n```\n\nFour WebViews are triggered to refresh, then Claude is called after a hardcoded 3-second wait hoping data has arrived. If the network is slow, Claude receives stale/null data; if fast, 3 seconds is wasted.\n\n**Fix — count completions before calling Claude:**\n\n```kotlin\n// Replace the delay + trigger pattern with a counter in ScrapeBridge\nprivate var pendingRefreshCount = AtomicInteger(0)\nprivate var onAllRefreshed: (() -> Unit)? = null\n\nclass ScrapeBridge {\n    @JavascriptInterface\n    fun reportData(json: String) {\n        Handler(Looper.getMainLooper()).post {\n            // existing parse logic ...\n            if (pendingRefreshCount.decrementAndGet() == 0) {\n                onAllRefreshed?.invoke()\n                onAllRefreshed = null\n            }\n        }\n    }\n}\n\n// In ActionButtons onClick:\npendingRefreshCount.set(SOURCES.size)\nonAllRefreshed = { scope.launch { triggerActionItemsGeneration(context) } }\nSOURCES.forEach { src -> webViewMap[src.name]?.evaluateJavascript(\"if (window.refresh) window.refresh();\", null) }\n```\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "2. Unnecessary Recompositions — `DashboardScreen` Reads All State Eagerly",
+        "content": "\n**Location:** `DashboardScreen`, lines 521–527\n\n```kotlin\nval myAvail by myAvailState          // recomposes on ANY state change\nval outlookPersonal by outlookPersonalState\nval outlookDboOps by outlookDboOpsState\nval planner by plannerState\nval items by actionItemsState\nval loading by actionItemsLoading\nval error by actionItemsError\n```\n\nEvery tile (`InboxTile`, `ActivitiesTile`, etc.) recomposes whenever **any** of these global states change — even if only `plannerState` updated, `InboxTile` still recomposes.\n\n**Fix — push state reads down into each tile:**\n\n```kotlin\n@Composable\nfun InboxTile() {\n    val personal by outlookPersonalState  // only recomposes when this changes\n    val dboOps by outlookDboOpsState\n    TileCard(title = \"Inbox\") { /* ... */ }\n}\n\n@Composable\nfun DashboardScreen(modifier: Modifier = Modifier) {\n    // No state reads here — just compose the tiles\n    Column(modifier = modifier.verticalScroll(rememberScrollState()).padding(8.dp), ...) {\n        ActionItemsTile(onGenerate = { scope.launch { triggerActionItemsGeneration(context) } })\n        InboxTile()\n        ActivitiesTile()\n        PlannerTile()\n        MessagesTile()\n    }\n}\n```\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "3. Redundant Computation — Triple List Pass in `ActionItemsTile`",
+        "content": "\n**Location:** `ActionItemsTile`, lines 624–625\n\n```kotlin\nval high   = visible.filter { it.priority.equals(\"high\",   true) }\nval medium = visible.filter { it.priority.equals(\"medium\", true) }\nval low    = visible.filter { it.priority.equals(\"low\",    true) }\n```\n\nThree separate O(n) filter passes over the same list on every recomposition.\n\n**Fix — single partitioning pass + memoize with `remember`:**\n\n```kotlin\nval (high, medium, low) = remember(visible) {\n    val h = mutableListOf<ActionItem>()\n    val m = mutableListOf<ActionItem>()\n    val l = mutableListOf<ActionItem>()\n    for (item in visible) when (item.priority.lowercase()) {\n        \"high\"   -> h += item\n        \"medium\" -> m += item\n        else     -> l += item\n    }\n    Triple(h, m, l)\n}\n```\n\nAlso, `dismissKey()` is called inside `filter` on every item on every recomposition. Memoize the filtered visible list too:\n\n```kotlin\nval dismissed by dismissedActionKeys\nval visible = remember(items, dismissed) {\n    items?.filter { it.dismissKey() !in dismissed } ?: emptyList()\n}\n```\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "4. Caching Opportunity — `buildInterceptorJs()` Rebuilt on Every Page Event",
+        "content": "\n**Location:** `SourceWebView`, lines 922 & 929; `buildInterceptorJs()` line 966\n\n```kotlin\noverride fun onPageStarted(...) {\n    view?.evaluateJavascript(buildInterceptorJs(), null)   // ← new 370-line string\n}\noverride fun onPageFinished(...) {\n    view?.evaluateJavascript(buildHeightFixJs(), null)\n    view?.evaluateJavascript(buildInterceptorJs(), null)   // ← again\n}\n```\n\n`buildInterceptorJs()` constructs the same ~1 KB string every single time. It's called **twice per page load** across 4 WebViews.\n\n**Fix — compute once with `lazy`:**\n\n```kotlin\nprivate val interceptorJs: String by lazy { buildInterceptorJs() }\nprivate val heightFixJs: String by lazy { buildHeightFixJs() }\n\n// In WebViewClient:\noverride fun onPageStarted(...) { view?.evaluateJavascript(interceptorJs, null) }\noverride fun onPageFinished(...) {\n    view?.evaluateJavascript(heightFixJs, null)\n    view?.evaluateJavascript(interceptorJs, null)\n}\n```\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "5. Memory Leak — `globalWebView` Holds Stale Reference",
+        "content": "\n**Location:** Line 132 & `LaunchedEffect`, lines 381–383\n\n```kotlin\nvar globalWebView: WebView? = null   // top-level global\n\nLaunchedEffect(currentTab, webViewMap[currentTab]) {\n    globalWebView = webViewMap[currentTab]\n}\n```\n\nIf the Activity is destroyed and recreated, `globalWebView` can hold a reference to a detached WebView from the previous instance, preventing GC. `globalWebView` is also used in `ActionButtons` for the non-Dashboard tab refresh — there's no lifecycle cleanup.\n\n**Fix — clear on Activity destroy and avoid the global entirely:**\n\n```kotlin\n// In MainActivity:\noverride fun onDestroy() {\n    super.onDestroy()\n    globalWebView = null\n    // WebViews in webViewMap are in remember{} and will be GC'd,\n    // but explicitly destroy them to release native resources:\n    webViewMap.values.forEach { it.destroy() }\n}\n```\n\nBetter still, pass `webViewMap[currentTab]` directly to `ActionButtons` rather than routing through a global.\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "6. Memory Leak — New `Handler` per Bridge Call",
+        "content": "\n**Location:** `ScrapeBridge.reportData()`, line 153\n\n```kotlin\nfun reportData(json: String) {\n    Handler(Looper.getMainLooper()).post {   // new Handler every invocation\n        // ...\n    }\n}\n```\n\nA new `Handler` is allocated for every data report from every WebView. Under heavy JS activity this creates allocation pressure.\n\n**Fix — single shared handler:**\n\n```kotlin\nclass ScrapeBridge {\n    companion object {\n        private val mainHandler = Handler(Looper.getMainLooper())\n    }\n\n    @JavascriptInterface\n    fun reportData(json: String) {\n        mainHandler.post { /* ... */ }\n    }\n}\n```\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "7. Memory Leak — WebView Debugging Enabled in All Builds",
+        "content": "\n**Location:** `SourceWebView`, line 916\n\n```kotlin\nWebView.setWebContentsDebuggingEnabled(true)  // ← in all builds\n```\n\nDebug mode keeps additional V8 state alive, increases memory usage, and opens a remote debugging attack surface.\n\n**Fix:**\n\n```kotlin\nif (BuildConfig.DEBUG) {\n    WebView.setWebContentsDebuggingEnabled(true)\n}\n```\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "Summary",
+        "content": "| Issue | Impact | Effort |\n|---|---|---|\n| 3-second blind delay before Claude call | Correctness + latency | Medium |\n| All-state read in `DashboardScreen` | Excess recompositions | Low |\n| Triple filter pass + no `remember` | CPU on each recomposition | Low |\n| `buildInterceptorJs()` rebuilt on every page event | Allocation + CPU | Low |\n| `globalWebView` stale reference | Memory leak | Low |\n| New `Handler` per bridge call | Allocation pressure | Low |\n| Debug WebView in release | Memory + security | Trivial |",
+        "level": 3
+      }
+    ],
+    "codeBlocks": [
+      {
+        "language": "kotlin",
+        "code": "scope.launch {\n    kotlinx.coroutines.delay(3000)   // ← blind wait, not data-driven\n    triggerActionItemsGeneration(context)\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "// Replace the delay + trigger pattern with a counter in ScrapeBridge\nprivate var pendingRefreshCount = AtomicInteger(0)\nprivate var onAllRefreshed: (() -> Unit)? = null\n\nclass ScrapeBridge {\n    @JavascriptInterface\n    fun reportData(json: String) {\n        Handler(Looper.getMainLooper()).post {\n            // existing parse logic ...\n            if (pendingRefreshCount.decrementAndGet() == 0) {\n                onAllRefreshed?.invoke()\n                onAllRefreshed = null\n            }\n        }\n    }\n}\n\n// In ActionButtons onClick:\npendingRefreshCount.set(SOURCES.size)\nonAllRefreshed = { scope.launch { triggerActionItemsGeneration(context) } }\nSOURCES.forEach { src -> webViewMap[src.name]?.evaluateJavascript(\"if (window.refresh) window.refresh();\", null) }"
+      },
+      {
+        "language": "kotlin",
+        "code": "val myAvail by myAvailState          // recomposes on ANY state change\nval outlookPersonal by outlookPersonalState\nval outlookDboOps by outlookDboOpsState\nval planner by plannerState\nval items by actionItemsState\nval loading by actionItemsLoading\nval error by actionItemsError"
+      },
+      {
+        "language": "kotlin",
+        "code": "@Composable\nfun InboxTile() {\n    val personal by outlookPersonalState  // only recomposes when this changes\n    val dboOps by outlookDboOpsState\n    TileCard(title = \"Inbox\") { /* ... */ }\n}\n\n@Composable\nfun DashboardScreen(modifier: Modifier = Modifier) {\n    // No state reads here — just compose the tiles\n    Column(modifier = modifier.verticalScroll(rememberScrollState()).padding(8.dp), ...) {\n        ActionItemsTile(onGenerate = { scope.launch { triggerActionItemsGeneration(context) } })\n        InboxTile()\n        ActivitiesTile()\n        PlannerTile()\n        MessagesTile()\n    }\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "val high   = visible.filter { it.priority.equals(\"high\",   true) }\nval medium = visible.filter { it.priority.equals(\"medium\", true) }\nval low    = visible.filter { it.priority.equals(\"low\",    true) }"
+      },
+      {
+        "language": "kotlin",
+        "code": "val (high, medium, low) = remember(visible) {\n    val h = mutableListOf<ActionItem>()\n    val m = mutableListOf<ActionItem>()\n    val l = mutableListOf<ActionItem>()\n    for (item in visible) when (item.priority.lowercase()) {\n        \"high\"   -> h += item\n        \"medium\" -> m += item\n        else     -> l += item\n    }\n    Triple(h, m, l)\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "val dismissed by dismissedActionKeys\nval visible = remember(items, dismissed) {\n    items?.filter { it.dismissKey() !in dismissed } ?: emptyList()\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "override fun onPageStarted(...) {\n    view?.evaluateJavascript(buildInterceptorJs(), null)   // ← new 370-line string\n}\noverride fun onPageFinished(...) {\n    view?.evaluateJavascript(buildHeightFixJs(), null)\n    view?.evaluateJavascript(buildInterceptorJs(), null)   // ← again\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "private val interceptorJs: String by lazy { buildInterceptorJs() }\nprivate val heightFixJs: String by lazy { buildHeightFixJs() }\n\n// In WebViewClient:\noverride fun onPageStarted(...) { view?.evaluateJavascript(interceptorJs, null) }\noverride fun onPageFinished(...) {\n    view?.evaluateJavascript(heightFixJs, null)\n    view?.evaluateJavascript(interceptorJs, null)\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "var globalWebView: WebView? = null   // top-level global\n\nLaunchedEffect(currentTab, webViewMap[currentTab]) {\n    globalWebView = webViewMap[currentTab]\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "// In MainActivity:\noverride fun onDestroy() {\n    super.onDestroy()\n    globalWebView = null\n    // WebViews in webViewMap are in remember{} and will be GC'd,\n    // but explicitly destroy them to release native resources:\n    webViewMap.values.forEach { it.destroy() }\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "fun reportData(json: String) {\n    Handler(Looper.getMainLooper()).post {   // new Handler every invocation\n        // ...\n    }\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "class ScrapeBridge {\n    companion object {\n        private val mainHandler = Handler(Looper.getMainLooper())\n    }\n\n    @JavascriptInterface\n    fun reportData(json: String) {\n        mainHandler.post { /* ... */ }\n    }\n}"
+      },
+      {
+        "language": "kotlin",
+        "code": "WebView.setWebContentsDebuggingEnabled(true)  // ← in all builds"
+      },
+      {
+        "language": "kotlin",
+        "code": "if (BuildConfig.DEBUG) {\n    WebView.setWebContentsDebuggingEnabled(true)\n}"
+      }
+    ]
+  },
+  "rawOutputPreview": "Now I have a complete picture. Let me provide the full analysis.\n\n---\n\n## Performance Analysis — `MainActivity.kt`\n\nThis is a Compose/Android app, not React, so \"re-renders\" map to **Compose recompositions**. Here are the real issues found:\n\n---\n\n### 1. N+1 Pattern — Fixed 3-Second Blind Delay\n\n**Location:** `ActionButtons` → `triggerActionItemsGeneration`, line ~471\n\n```kotlin\nscope.launch {\n    kotlinx.coroutines.delay(3000)   // ← blind wait, not data-driven\n    triggerActionItemsGeneration(context)\n}\n```\n\nFour WebViews are triggered to refresh, then Claude is called after a hardcoded 3-second wait hoping data has arrived. If the network is slow, Claude receives stale/null data; if fast, 3 seconds is wasted.\n\n**Fix — count completions before calling Claude:**\n\n```kotlin\n// Replace the delay + trigger pattern with a counter in ScrapeBridge\nprivate var pendingRefreshCount = AtomicInteger(0)\nprivate var onAllRefreshed: (() -> Unit)? = null\n\nclass ScrapeBridge {\n    @JavascriptInterface\n    fun reportData(json: String) {\n        Handler(Looper.getMainLooper()).post {\n            // existing parse logic ...\n            if (pendingRefreshCount.decrementAndGet() == 0) {\n                onAllRefreshed?.invoke()\n                onAllRefreshed = null\n            }\n        }\n    }\n}\n\n// In ActionButtons onClick:\npendingRefreshCount.set(SOURCES.size)\nonAllRefreshed = { scope.launch { triggerActionItemsGeneration(context) } }\nSOURCES.forEach { src -> webViewMap[src.name]?.evaluateJavascript(\"if (window.refresh) window.refresh();\", null) }\n```\n\n---\n\n### 2. Unnecessary Recompositions — `DashboardScreen` Reads All State Eagerly\n\n**Location:** `DashboardScreen`, lines 521–527\n\n```kotlin\nval myAvail by myAvailState          // recomposes on ANY state change\nval outlookPersonal by outlookPersonalState\nval outlookDboOps by outlookDboOpsState\nval planner by plannerState\nval items by actionItemsState\nval loading by actionItemsLoading\nval error by actionItemsError\n```\n\nEvery tile (`Inb",
+  "rawOutputLength": 7587
+}
